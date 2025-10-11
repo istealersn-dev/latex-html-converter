@@ -118,7 +118,7 @@ async def convert_latex_to_html(
                     "packages_used": ["amsmath", "graphicx", "booktabs"],
                     "conversion_time": 2.5,
                     "timestamp": datetime.utcnow().isoformat(),
-                    "options": conversion_options.dict() if conversion_options else {}
+                    "options": conversion_options.model_dump() if conversion_options else {}
                 }
             )
             
