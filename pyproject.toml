@@ -3,9 +3,9 @@ name = "latex-html-converter"
 version = "0.1.0"
 description = "LaTeX → HTML5 converter (LaTeXML core) with SVG assets & MathJax."
 authors = ["Your Team"]
-python = "^3.11"
 
 [tool.poetry.dependencies]
+python = "^3.11"
 fastapi = "^0.115.0"
 uvicorn = {extras = ["standard"], version = "^0.30.0"}
 pydantic = "^2.9.0"
