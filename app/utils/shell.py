@@ -115,9 +115,18 @@ def _validate_command_safety(cmd: list[str]) -> None:
             raise ValueError(f"Unsafe command pattern detected: {pattern}")
 
     # Check for shell injection attempts
-    if any(char in cmd_str for char in [';', '&', '|', '`', '$', '(', ')']):
+    dangerous_chars = [';', '&', '|', '`', '$', '(', ')', '<', '>', '~', '!']
+    if any(char in cmd_str for char in dangerous_chars):
         # Allow some safe characters but log warning
         logger.warning(f"Command contains potentially unsafe characters: {cmd_str}")
+    
+    # Additional security checks
+    if any(word in cmd_str for word in ['sudo', 'su', 'chmod', 'chown', 'passwd']):
+        raise ValueError(f"Potentially dangerous command detected: {cmd_str}")
+    
+    # Check for path traversal attempts
+    if '..' in cmd_str or '/etc/' in cmd_str or '/sys/' in cmd_str:
+        raise ValueError(f"Path traversal or system directory access detected: {cmd_str}")
 
 
 def run_command_with_retry(

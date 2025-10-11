@@ -17,6 +17,36 @@ from app.utils.shell import run_command_safely
 
 class TectonicCompilationError(Exception):
     """Raised when Tectonic compilation fails."""
+    
+    def __init__(self, message: str, error_type: str = "COMPILATION_ERROR", details: dict | None = None):
+        super().__init__(message)
+        self.error_type = error_type
+        self.details = details or {}
+
+
+class TectonicTimeoutError(TectonicCompilationError):
+    """Raised when Tectonic compilation times out."""
+    
+    def __init__(self, timeout_seconds: int):
+        super().__init__(
+            f"Tectonic compilation timed out after {timeout_seconds} seconds",
+            "TIMEOUT_ERROR",
+            {"timeout_seconds": timeout_seconds}
+        )
+
+
+class TectonicFileError(TectonicCompilationError):
+    """Raised when there are file-related issues with Tectonic compilation."""
+    
+    def __init__(self, message: str, file_path: str | None = None):
+        super().__init__(message, "FILE_ERROR", {"file_path": file_path})
+
+
+class TectonicSecurityError(TectonicCompilationError):
+    """Raised when security issues are detected in Tectonic compilation."""
+    
+    def __init__(self, message: str, security_issue: str):
+        super().__init__(message, "SECURITY_ERROR", {"security_issue": security_issue})
 
 
 class TectonicService:
@@ -68,11 +98,21 @@ class TectonicService:
         Raises:
             TectonicCompilationError: If compilation fails
         """
+        # Enhanced error handling and validation
         if not input_file.exists():
-            raise TectonicCompilationError(f"Input file not found: {input_file}")
+            raise TectonicFileError(f"Input file not found: {input_file}", str(input_file))
+
+        if not input_file.is_file():
+            raise TectonicFileError(f"Input path is not a file: {input_file}", str(input_file))
+
+        # Security: Check for dangerous file patterns
+        self._validate_input_file_security(input_file)
 
         # Ensure output directory exists
-        ensure_directory(output_dir)
+        try:
+            ensure_directory(output_dir)
+        except Exception as exc:
+            raise TectonicFileError(f"Failed to create output directory: {exc}", str(output_dir))
 
         # Build Tectonic command
         cmd = self._build_command(input_file, output_dir, options)
@@ -81,26 +121,39 @@ class TectonicService:
         logger.debug(f"Tectonic command: {' '.join(cmd)}")
 
         try:
-            # Run Tectonic compilation
-            result = run_command_safely(cmd, cwd=input_file.parent)
+            # Run Tectonic compilation with enhanced error handling
+            result = run_command_safely(cmd, cwd=input_file.parent, timeout=300)  # 5 minute timeout
 
             if result.returncode != 0:
-                error_msg = f"Tectonic compilation failed:\n{result.stderr}"
-                logger.error(error_msg)
-                raise TectonicCompilationError(error_msg)
+                # Parse and categorize the error
+                error_info = self._parse_compilation_error(result.stderr, result.stdout)
+                logger.error(f"Tectonic compilation failed: {error_info['message']}")
+                raise TectonicCompilationError(
+                    error_info['message'],
+                    error_info['error_type'],
+                    error_info['details']
+                )
 
             # Parse compilation results
             compilation_result = self._parse_compilation_result(
                 input_file, output_dir, result.stdout, result.stderr
             )
 
+            # Validate output file was created
+            if not compilation_result.get('output_file') or not Path(compilation_result['output_file']).exists():
+                raise TectonicFileError("Compilation completed but no output file was created")
+
             logger.info(f"Compilation successful: {compilation_result['output_file']}")
             return compilation_result
 
-        except subprocess.TimeoutExpired:
-            raise TectonicCompilationError("Tectonic compilation timed out")
+        except subprocess.TimeoutExpired as exc:
+            raise TectonicTimeoutError(300)
+        except TectonicCompilationError:
+            # Re-raise our custom errors
+            raise
         except Exception as exc:
-            raise TectonicCompilationError(f"Compilation failed: {exc}")
+            logger.error(f"Unexpected compilation error: {exc}")
+            raise TectonicCompilationError(f"Unexpected compilation error: {exc}", "UNKNOWN_ERROR")
 
     def _build_command(
         self,
@@ -122,7 +175,13 @@ class TectonicService:
         cmd = [self.tectonic_path]
 
         # Security: Disable shell-escape and other dangerous features
-        cmd.extend(["--keep-logs", "--keep-intermediates"])
+        cmd.extend([
+            "--keep-logs", 
+            "--keep-intermediates",
+            "--no-shell-escape",  # Explicitly disable shell-escape
+            "--no-interaction",   # Non-interactive mode
+            "--halt-on-error"     # Stop on first error
+        ])
 
         # Output directory
         cmd.extend(["--outdir", str(output_dir)])
@@ -245,3 +304,97 @@ class TectonicService:
                     info["total_size"] += file_path.stat().st_size
 
         return info
+
+    def _validate_input_file_security(self, input_file: Path) -> None:
+        """
+        Validate input file for security issues.
+        
+        Args:
+            input_file: Input file to validate
+            
+        Raises:
+            TectonicSecurityError: If security issues are detected
+        """
+        # Check file extension
+        if not input_file.suffix.lower() in ['.tex', '.latex']:
+            raise TectonicSecurityError(
+                f"Invalid file extension: {input_file.suffix}",
+                "INVALID_EXTENSION"
+            )
+        
+        # Check for dangerous patterns in filename
+        dangerous_patterns = ['..', '/', '\\', '~', '$', '`', '|', '&', ';']
+        filename = str(input_file.name)
+        for pattern in dangerous_patterns:
+            if pattern in filename:
+                raise TectonicSecurityError(
+                    f"Dangerous pattern in filename: {pattern}",
+                    "DANGEROUS_FILENAME"
+                )
+        
+        # Check file size (prevent extremely large files)
+        try:
+            file_size = input_file.stat().st_size
+            if file_size > 50 * 1024 * 1024:  # 50MB limit
+                raise TectonicSecurityError(
+                    f"File too large: {file_size} bytes",
+                    "FILE_TOO_LARGE"
+                )
+        except OSError as exc:
+            raise TectonicSecurityError(
+                f"Cannot access file: {exc}",
+                "FILE_ACCESS_ERROR"
+            )
+
+    def _parse_compilation_error(self, stderr: str, stdout: str) -> dict[str, Any]:
+        """
+        Parse and categorize compilation errors.
+        
+        Args:
+            stderr: Standard error output
+            stdout: Standard output
+            
+        Returns:
+            Dictionary with error information
+        """
+        error_info = {
+            "message": "Compilation failed",
+            "error_type": "COMPILATION_ERROR",
+            "details": {
+                "stderr": stderr,
+                "stdout": stdout,
+                "error_lines": []
+            }
+        }
+        
+        # Parse common LaTeX errors
+        stderr_lower = stderr.lower()
+        
+        if "emergency stop" in stderr_lower:
+            error_info["error_type"] = "EMERGENCY_STOP"
+            error_info["message"] = "LaTeX compilation stopped due to emergency"
+        elif "undefined control sequence" in stderr_lower:
+            error_info["error_type"] = "UNDEFINED_CONTROL"
+            error_info["message"] = "Undefined LaTeX command or control sequence"
+        elif "missing" in stderr_lower and "begin" in stderr_lower:
+            error_info["error_type"] = "MISSING_BEGIN"
+            error_info["message"] = "Missing \\begin{document} or environment"
+        elif "file not found" in stderr_lower:
+            error_info["error_type"] = "FILE_NOT_FOUND"
+            error_info["message"] = "Required LaTeX file or package not found"
+        elif "overfull" in stderr_lower or "underfull" in stderr_lower:
+            error_info["error_type"] = "TYPESETTING_WARNING"
+            error_info["message"] = "Typesetting issues detected (overfull/underfull boxes)"
+        elif "error" in stderr_lower:
+            error_info["error_type"] = "GENERAL_ERROR"
+            error_info["message"] = "General LaTeX compilation error"
+        
+        # Extract error lines
+        error_lines = []
+        for line in stderr.split('\n'):
+            if any(keyword in line.lower() for keyword in ['error', 'emergency', 'undefined', 'missing']):
+                error_lines.append(line.strip())
+        
+        error_info["details"]["error_lines"] = error_lines
+        
+        return error_info
