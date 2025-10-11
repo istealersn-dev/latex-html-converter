@@ -1,0 +1,28 @@
+{
+    "venvPath": "/Users/stanleynadar/Library/Caches/pypoetry/virtualenvs",
+    "venv": "latex-html-converter-VzknyKm_-py3.13",
+    "pythonVersion": "3.13",
+    "pythonPlatform": "Darwin",
+    "executionEnvironments": [
+        {
+            "root": ".",
+            "pythonVersion": "3.13",
+            "pythonPlatform": "Darwin",
+            "extraPaths": [
+                "./app"
+            ]
+        }
+    ],
+    "include": [
+        "app/**/*.py"
+    ],
+    "exclude": [
+        "**/node_modules",
+        "**/__pycache__",
+        ".venv",
+        "venv"
+    ],
+    "typeCheckingMode": "basic",
+    "useLibraryCodeForTypes": true,
+    "autoImportCompletions": true
+}
