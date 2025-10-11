@@ -100,13 +100,19 @@ def _validate_command_safety(cmd: list[str]) -> None:
     Raises:
         ValueError: If command contains unsafe patterns
     """
-    # Dangerous patterns to avoid
+    # Dangerous patterns to avoid (but allow LaTeX flags)
     dangerous_patterns = [
         '&&', '||', ';', '|', '>', '<', '>>', '<<', '&',
         '$(', '`', '$(', '${', 'exec', 'eval', 'source',
         'rm -rf', 'rmdir', 'del', 'format', 'fdisk',
-        'mkfs', 'dd', 'shutdown', 'reboot', 'halt'
+        'mkfs', 'dd', 'shutdown', 'reboot'
     ]
+    
+    # Additional check for dangerous commands (but not flags)
+    dangerous_commands = ['halt', 'kill', 'pkill']
+    for cmd_part in cmd:
+        if cmd_part in dangerous_commands and not cmd_part.startswith('--'):
+            raise ValueError(f"Unsafe command detected: {cmd_part}")
 
     cmd_str = ' '.join(cmd).lower()
 

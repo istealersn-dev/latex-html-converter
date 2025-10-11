@@ -174,14 +174,14 @@ class TectonicService:
         """
         cmd = [self.tectonic_path]
 
-        # Security: Disable shell-escape and other dangerous features
+        # Security: Keep logs and intermediates for debugging
         cmd.extend([
             "--keep-logs", 
-            "--keep-intermediates",
-            "--no-shell-escape",  # Explicitly disable shell-escape
-            "--no-interaction",   # Non-interactive mode
-            "--halt-on-error"     # Stop on first error
+            "--keep-intermediates"
         ])
+        
+        # Security: Use untrusted mode to disable insecure features
+        cmd.append("--untrusted")
 
         # Output directory
         cmd.extend(["--outdir", str(output_dir)])
