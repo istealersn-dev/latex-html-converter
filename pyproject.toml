@@ -30,6 +30,7 @@ mypy = "^1.11.2"
 pre-commit = "^3.8.0"
 types-psutil = "^7.0.0.20251001"
 pylint = "^3.3.9"
+httpx = "^0.28.1"
 
 [tool.ruff]
 line-length = 100
