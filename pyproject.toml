@@ -35,6 +35,17 @@ httpx = "^0.28.1"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+select = ["E", "W", "F", "I", "N", "UP", "B", "A", "C4", "PIE", "T20", "SIM", "ARG", "PTH", "ERA", "PD", "PGH", "PL", "TRY", "FLY", "NPY", "AIR", "PERF", "FURB", "LOG", "RUF"]
+ignore = ["E501", "E203"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.lint.pylint]
+max-args = 6
+max-branches = 12
+max-returns = 6
+max-statements = 50
 
 [tool.mypy]
 python_version = "3.11"

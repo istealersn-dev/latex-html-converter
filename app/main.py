@@ -5,11 +5,11 @@ This module initializes the FastAPI application with proper configuration,
 middleware, and routing for the LaTeX to HTML5 conversion service.
 """
 
+import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from loguru import logger
-import uvicorn
 
 from app.api import conversion, health
 from app.config import settings
