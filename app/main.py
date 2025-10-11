@@ -19,7 +19,7 @@ from app.middleware import LoggingMiddleware
 def create_app() -> FastAPI:
     """
     Create and configure the FastAPI application.
-    
+
     Returns:
         FastAPI: Configured FastAPI application instance
     """
@@ -31,23 +31,23 @@ def create_app() -> FastAPI:
         redoc_url="/redoc",
         openapi_url="/openapi.json"
     )
-    
+
     # Add middleware
     setup_middleware(app)
-    
+
     # Include routers
     setup_routers(app)
-    
+
     # Setup logging
     setup_logging()
-    
+
     return app
 
 
 def setup_middleware(app: FastAPI) -> None:
     """
     Configure middleware for the FastAPI application.
-    
+
     Args:
         app: FastAPI application instance
     """
@@ -59,21 +59,21 @@ def setup_middleware(app: FastAPI) -> None:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
+
     # Trusted host middleware
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=settings.ALLOWED_HOSTS
     )
-    
+
     # Custom logging middleware
-    app.add_middleware(LoggingMiddleware)
+    app.add_middleware(LoggingMiddleware)  # type: ignore
 
 
 def setup_routers(app: FastAPI) -> None:
     """
     Include API routers in the FastAPI application.
-    
+
     Args:
         app: FastAPI application instance
     """
@@ -86,7 +86,7 @@ def setup_logging() -> None:
     Configure logging with loguru.
     """
     logger.remove()  # Remove default handler
-    
+
     # Add console handler
     logger.add(
         sink=lambda msg: print(msg, end=""),
@@ -94,7 +94,7 @@ def setup_logging() -> None:
         level=settings.LOG_LEVEL,
         colorize=True
     )
-    
+
     # Add file handler for production
     if settings.ENVIRONMENT == "production":
         logger.add(
@@ -111,7 +111,7 @@ app = create_app()
 
 
 @app.on_event("startup")
-async def startup_event():
+async def startup_event() -> None:
     """
     Application startup event handler.
     """
@@ -121,7 +121,7 @@ async def startup_event():
 
 
 @app.on_event("shutdown")
-async def shutdown_event():
+async def shutdown_event() -> None:
     """
     Application shutdown event handler.
     """

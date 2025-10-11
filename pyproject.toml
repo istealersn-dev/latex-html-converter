@@ -19,6 +19,7 @@ loguru = "^0.7.2"
 # Optional helpers (nice-to-haves)
 pylatexenc = "^2.10"
 # plasTeX = "^3.2.0"  # keep commented until needed
+psutil = "^7.1.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.2"
@@ -27,6 +28,8 @@ pytest-cov = "^5.0.0"
 ruff = "^0.6.9"
 mypy = "^1.11.2"
 pre-commit = "^3.8.0"
+types-psutil = "^7.0.0.20251001"
+pylint = "^3.3.9"
 
 [tool.ruff]
 line-length = 100

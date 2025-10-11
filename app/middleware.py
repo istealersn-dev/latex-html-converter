@@ -6,6 +6,7 @@ and other cross-cutting concerns.
 """
 
 import time
+from typing import Any, Dict
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from loguru import logger
@@ -15,24 +16,24 @@ import uuid
 class LoggingMiddleware:
     """
     Custom logging middleware for request/response logging.
-    
+
     This middleware logs all incoming requests and outgoing responses
     with timing information and request IDs for better debugging.
     """
-    
-    def __init__(self, app):
+
+    def __init__(self, app: Any) -> None:
         """
         Initialize the logging middleware.
-        
+
         Args:
             app: FastAPI application instance
         """
         self.app = app
-    
-    async def __call__(self, scope, receive, send):
+
+    async def __call__(self, scope: Dict[str, Any], receive: Any, send: Any) -> None:
         """
         Process the request and add logging.
-        
+
         Args:
             scope: ASGI scope
             receive: ASGI receive callable
@@ -41,29 +42,29 @@ class LoggingMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        
+
         # Generate request ID
         request_id = str(uuid.uuid4())[:8]
-        
+
         # Add request ID to scope
         scope["request_id"] = request_id
-        
+
         # Start timing
         start_time = time.time()
-        
+
         # Log request
         request = Request(scope, receive)
         logger.info(
             f"[{request_id}] {request.method} {request.url.path} - "
             f"Client: {request.client.host if request.client else 'unknown'}"
         )
-        
+
         # Process request
         await self.app(scope, receive, send)
-        
+
         # Calculate processing time
         process_time = time.time() - start_time
-        
+
         # Log response
         logger.info(
             f"[{request_id}] Request completed in {process_time:.3f}s"
@@ -73,24 +74,24 @@ class LoggingMiddleware:
 class ErrorHandlingMiddleware:
     """
     Custom error handling middleware for consistent error responses.
-    
+
     This middleware catches unhandled exceptions and returns
     consistent JSON error responses.
     """
-    
-    def __init__(self, app):
+
+    def __init__(self, app: Any) -> None:
         """
         Initialize the error handling middleware.
-        
+
         Args:
             app: FastAPI application instance
         """
         self.app = app
-    
-    async def __call__(self, scope, receive, send):
+
+    async def __call__(self, scope: Dict[str, Any], receive: Any, send: Any) -> None:
         """
         Process the request with error handling.
-        
+
         Args:
             scope: ASGI scope
             receive: ASGI receive callable
@@ -101,7 +102,7 @@ class ErrorHandlingMiddleware:
         except Exception as exc:
             # Log the error
             logger.error(f"Unhandled exception: {exc}", exc_info=True)
-            
+
             # Create error response
             error_response = JSONResponse(
                 status_code=500,
@@ -111,7 +112,7 @@ class ErrorHandlingMiddleware:
                     "request_id": scope.get("request_id", "unknown")
                 }
             )
-            
+
             # Send error response
             await error_response(scope, receive, send)
 
@@ -119,24 +120,24 @@ class ErrorHandlingMiddleware:
 class SecurityMiddleware:
     """
     Security middleware for request validation and protection.
-    
+
     This middleware adds security headers and validates requests
     for potential security issues.
     """
-    
-    def __init__(self, app):
+
+    def __init__(self, app: Any) -> None:
         """
         Initialize the security middleware.
-        
+
         Args:
             app: FastAPI application instance
         """
         self.app = app
-    
-    async def __call__(self, scope, receive, send):
+
+    async def __call__(self, scope: Dict[str, Any], receive: Any, send: Any) -> None:
         """
         Process the request with security checks.
-        
+
         Args:
             scope: ASGI scope
             receive: ASGI receive callable
@@ -145,9 +146,9 @@ class SecurityMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        
+
         # Add security headers
-        async def send_wrapper(message):
+        async def send_wrapper(message: Dict[str, Any]) -> None:
             if message["type"] == "http.response.start":
                 headers = list(message.get("headers", []))
                 headers.extend([
@@ -158,5 +159,5 @@ class SecurityMiddleware:
                 ])
                 message["headers"] = headers
             await send(message)
-        
+
         await self.app(scope, receive, send_wrapper)

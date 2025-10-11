@@ -5,6 +5,7 @@ This module provides health check endpoints for monitoring
 and service discovery.
 """
 
+from typing import Dict
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from loguru import logger
@@ -18,10 +19,10 @@ router = APIRouter()
 
 
 @router.get("/healthz")
-async def health_check():
+async def health_check() -> JSONResponse:
     """
     Basic health check endpoint.
-    
+
     Returns:
         JSONResponse: Health status and basic information
     """
@@ -42,10 +43,10 @@ async def health_check():
 
 
 @router.get("/health")
-async def detailed_health_check():
+async def detailed_health_check() -> JSONResponse:
     """
     Detailed health check endpoint with system information.
-    
+
     Returns:
         JSONResponse: Detailed health status and system metrics
     """
@@ -57,17 +58,17 @@ async def detailed_health_check():
             "python_version": platform.python_version(),
             "architecture": platform.architecture()[0]
         }
-        
+
         # Get system metrics
         system_metrics = {
             "cpu_percent": psutil.cpu_percent(interval=1),
             "memory_percent": psutil.virtual_memory().percent,
             "disk_percent": psutil.disk_usage('/').percent
         }
-        
+
         # Check external dependencies
         dependencies_status = await check_dependencies()
-        
+
         return JSONResponse(
             status_code=200,
             content={
@@ -86,10 +87,10 @@ async def detailed_health_check():
         raise HTTPException(status_code=503, detail="Service unhealthy")
 
 
-async def check_dependencies() -> dict:
+async def check_dependencies() -> Dict[str, bool]:
     """
     Check the status of external dependencies.
-    
+
     Returns:
         dict: Status of external dependencies
     """
@@ -98,7 +99,7 @@ async def check_dependencies() -> dict:
         "latexml": False,
         "dvisvgm": False
     }
-    
+
     try:
         # Check Tectonic
         import subprocess
@@ -111,7 +112,7 @@ async def check_dependencies() -> dict:
         dependencies["tectonic"] = result.returncode == 0
     except Exception:
         dependencies["tectonic"] = False
-    
+
     try:
         # Check LaTeXML
         result = subprocess.run(
@@ -123,7 +124,7 @@ async def check_dependencies() -> dict:
         dependencies["latexml"] = result.returncode == 0
     except Exception:
         dependencies["latexml"] = False
-    
+
     try:
         # Check dvisvgm
         result = subprocess.run(
@@ -135,26 +136,26 @@ async def check_dependencies() -> dict:
         dependencies["dvisvgm"] = result.returncode == 0
     except Exception:
         dependencies["dvisvgm"] = False
-    
+
     return dependencies
 
 
 @router.get("/ready")
-async def readiness_check():
+async def readiness_check() -> JSONResponse:
     """
     Readiness check endpoint for Kubernetes/Docker health checks.
-    
+
     Returns:
         JSONResponse: Readiness status
     """
     try:
         # Check if all critical dependencies are available
         dependencies = await check_dependencies()
-        
+
         # Consider service ready if at least Tectonic and LaTeXML are available
         critical_deps = ["tectonic", "latexml"]
         ready = all(dependencies[dep] for dep in critical_deps)
-        
+
         if ready:
             return JSONResponse(
                 status_code=200,
@@ -164,19 +165,18 @@ async def readiness_check():
                     "timestamp": datetime.utcnow().isoformat()
                 }
             )
-        else:
-            return JSONResponse(
-                status_code=503,
-                content={
-                    "status": "not_ready",
-                    "service": settings.APP_NAME,
-                    "missing_dependencies": [
-                        dep for dep, status in dependencies.items()
-                        if not status
-                    ],
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-            )
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "not_ready",
+                "service": settings.APP_NAME,
+                "missing_dependencies": [
+                    dep for dep, status in dependencies.items()
+                    if not status
+                ],
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
     except Exception as e:
         logger.error(f"Readiness check failed: {e}")
         raise HTTPException(status_code=503, detail="Service not ready")
