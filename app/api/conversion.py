@@ -9,7 +9,8 @@ import uuid
 import tempfile
 import shutil
 import json
-import asyncio
+import threading
+import time
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -33,36 +34,46 @@ _conversion_storage: Dict[str, Dict[str, Any]] = {}
 
 def _schedule_delayed_cleanup(conversion_id: str, cleanup_time: datetime) -> None:
     """
-    Schedule delayed cleanup for a conversion.
+    Schedule delayed cleanup for a conversion using threading.
     
     Args:
         conversion_id: Conversion ID to clean up
         cleanup_time: When to perform cleanup
     """
-    async def _delayed_cleanup() -> None:
-        # Wait until cleanup time
-        now = datetime.utcnow()
-        if cleanup_time > now:
-            wait_seconds = (cleanup_time - now).total_seconds()
-            await asyncio.sleep(wait_seconds)
-        
-        # Check if conversion still exists and hasn't been accessed recently
-        if conversion_id in _conversion_storage:
-            conversion_data = _conversion_storage[conversion_id]
-            if not conversion_data.get("cleanup_scheduled", False):
-                # Mark as scheduled to prevent multiple cleanups
-                _conversion_storage[conversion_id]["cleanup_scheduled"] = True
-                
-                # Clean up the files
-                temp_dir = Path(conversion_data["temp_dir"])
-                _cleanup_temp_directory(temp_dir)
-                
-                # Remove from storage
-                _conversion_storage.pop(conversion_id, None)
-                logger.info(f"Scheduled cleanup completed for conversion {conversion_id}")
+    def _delayed_cleanup() -> None:
+        """Thread function for delayed cleanup."""
+        try:
+            # Wait until cleanup time
+            now = datetime.utcnow()
+            if cleanup_time > now:
+                wait_seconds = (cleanup_time - now).total_seconds()
+                time.sleep(wait_seconds)
+            
+            # Check if conversion still exists and hasn't been accessed recently
+            if conversion_id in _conversion_storage:
+                conversion_data = _conversion_storage[conversion_id]
+                if not conversion_data.get("cleanup_scheduled", False):
+                    # Mark as scheduled to prevent multiple cleanups
+                    _conversion_storage[conversion_id]["cleanup_scheduled"] = True
+                    
+                    # Clean up the files
+                    temp_dir = Path(conversion_data["temp_dir"])
+                    _cleanup_temp_directory(temp_dir)
+                    
+                    # Remove from storage
+                    _conversion_storage.pop(conversion_id, None)
+                    logger.info(f"Scheduled cleanup completed for conversion {conversion_id}")
+        except Exception as exc:
+            logger.error(f"Cleanup thread failed for conversion {conversion_id}: {exc}")
     
-    # Schedule the async cleanup
-    asyncio.create_task(_delayed_cleanup())
+    # Start cleanup thread
+    cleanup_thread = threading.Thread(
+        target=_delayed_cleanup,
+        name=f"cleanup-{conversion_id}",
+        daemon=True  # Don't prevent app shutdown
+    )
+    cleanup_thread.start()
+    logger.info(f"Started cleanup thread for conversion {conversion_id}")
 
 
 def _create_result_zip(temp_dir: Path, output_zip: Path) -> None:
