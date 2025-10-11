@@ -28,9 +28,68 @@ router = APIRouter()
 # In-memory storage for conversion tracking
 # In production, this should be replaced with a proper database
 _conversion_storage: Dict[str, Dict[str, Any]] = {}
+_storage_lock = threading.RLock()  # Reentrant lock for thread safety
 
 
 # Helper functions (defined before use)
+
+def _safe_get_conversion(conversion_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Thread-safe get conversion data.
+    
+    Args:
+        conversion_id: Conversion ID to retrieve
+        
+    Returns:
+        Conversion data or None if not found
+    """
+    with _storage_lock:
+        return _conversion_storage.get(conversion_id)
+
+
+def _safe_set_conversion(conversion_id: str, data: Dict[str, Any]) -> None:
+    """
+    Thread-safe set conversion data.
+    
+    Args:
+        conversion_id: Conversion ID to store
+        data: Conversion data to store
+    """
+    with _storage_lock:
+        _conversion_storage[conversion_id] = data
+
+
+def _safe_remove_conversion(conversion_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Thread-safe remove conversion data.
+    
+    Args:
+        conversion_id: Conversion ID to remove
+        
+    Returns:
+        Removed conversion data or None if not found
+    """
+    with _storage_lock:
+        return _conversion_storage.pop(conversion_id, None)
+
+
+def _safe_update_conversion(conversion_id: str, updates: Dict[str, Any]) -> bool:
+    """
+    Thread-safe update conversion data.
+    
+    Args:
+        conversion_id: Conversion ID to update
+        updates: Updates to apply
+        
+    Returns:
+        True if conversion existed and was updated, False otherwise
+    """
+    with _storage_lock:
+        if conversion_id in _conversion_storage:
+            _conversion_storage[conversion_id].update(updates)
+            return True
+        return False
+
 
 def _schedule_delayed_cleanup(conversion_id: str, cleanup_time: datetime) -> None:
     """
@@ -50,18 +109,16 @@ def _schedule_delayed_cleanup(conversion_id: str, cleanup_time: datetime) -> Non
                 time.sleep(wait_seconds)
             
             # Check if conversion still exists and hasn't been accessed recently
-            if conversion_id in _conversion_storage:
-                conversion_data = _conversion_storage[conversion_id]
-                if not conversion_data.get("cleanup_scheduled", False):
-                    # Mark as scheduled to prevent multiple cleanups
-                    _conversion_storage[conversion_id]["cleanup_scheduled"] = True
-                    
+            conversion_data = _safe_get_conversion(conversion_id)
+            if conversion_data and not conversion_data.get("cleanup_scheduled", False):
+                # Mark as scheduled to prevent multiple cleanups
+                if _safe_update_conversion(conversion_id, {"cleanup_scheduled": True}):
                     # Clean up the files
                     temp_dir = Path(conversion_data["temp_dir"])
                     _cleanup_temp_directory(temp_dir)
                     
                     # Remove from storage
-                    _conversion_storage.pop(conversion_id, None)
+                    _safe_remove_conversion(conversion_id)
                     logger.info(f"Scheduled cleanup completed for conversion {conversion_id}")
         except Exception as exc:
             logger.error(f"Cleanup thread failed for conversion {conversion_id}: {exc}")
@@ -199,13 +256,13 @@ async def convert_latex_to_html(
             assets = _create_mock_assets(output_dir)
             
             # Store conversion metadata for tracking
-            _conversion_storage[conversion_id] = {
+            _safe_set_conversion(conversion_id, {
                 "temp_dir": str(temp_dir),
                 "html_file": str(html_file),
                 "assets": [str(asset) for asset in assets],
                 "created_at": datetime.utcnow(),
                 "cleanup_scheduled": False
-            }
+            })
             
             # Schedule delayed cleanup (e.g., 1 hour from now)
             cleanup_time = datetime.utcnow() + timedelta(hours=1)
@@ -254,10 +311,9 @@ async def get_conversion_status(conversion_id: str) -> ConversionStatusResponse:
     """
     try:
         # Check if conversion exists in storage
-        if conversion_id not in _conversion_storage:
+        conversion_data = _safe_get_conversion(conversion_id)
+        if not conversion_data:
             raise HTTPException(status_code=404, detail="Conversion not found")
-        
-        conversion_data = _conversion_storage[conversion_id]
         
         # Check if files still exist
         temp_dir = Path(conversion_data["temp_dir"])
@@ -300,10 +356,9 @@ async def download_conversion_result(conversion_id: str) -> FileResponse:
     """
     try:
         # Check if conversion exists in storage
-        if conversion_id not in _conversion_storage:
+        conversion_data = _safe_get_conversion(conversion_id)
+        if not conversion_data:
             raise HTTPException(status_code=404, detail="Conversion not found")
-        
-        conversion_data = _conversion_storage[conversion_id]
         
         # Check if files still exist
         temp_dir = Path(conversion_data["temp_dir"])
