@@ -44,6 +44,15 @@ This directory contains specialized Cursor agent configurations for different as
 - Monitoring and logging setup
 - Security and compliance
 
+### 🔧 [Git CLI Task Runner Agent](git-cli-agent.md)
+**Focus**: Git workflow automation, branch management, development process
+- Automated Git workflow execution
+- Branch creation and management
+- Pre-commit quality checks
+- Pull request automation
+- Linear integration workflow
+- Code quality validation
+
 ## 🎯 How to Use These Agents
 
 1. **Select the appropriate agent** based on your current task
@@ -55,6 +64,7 @@ This directory contains specialized Cursor agent configurations for different as
 ## 🔄 Agent Collaboration
 
 These agents are designed to work together:
+- **Git CLI Agent** manages workflow and ensures quality gates
 - **API Agent** creates endpoints that **Conversion Agent** implements
 - **Testing Agent** validates work from all other agents
 - **Docs Agent** documents everything created by other agents
