@@ -551,12 +551,9 @@ def _find_main_tex_file(extracted_dir: Path) -> Path | None:
         # Return the first .tex file found
         return tex_files[0]
 
-    # Look in subdirectories
-    for subdir in extracted_dir.iterdir():
-        if subdir.is_dir():
-            subdir_tex_files = list(subdir.glob("*.tex"))
-            if subdir_tex_files:
-                return subdir_tex_files[0]
+    # Look in subdirectories recursively
+    for tex_file in extracted_dir.rglob("*.tex"):
+        return tex_file
 
     return None
 
