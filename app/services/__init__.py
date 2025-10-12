@@ -39,6 +39,34 @@ from .tectonic import (
     TectonicService,
     TectonicTimeoutError,
 )
+from .assets import (
+    AssetConversionError,
+    AssetConversionFileError,
+    AssetConversionService,
+    AssetConversionTimeoutError,
+)
+from .tikz import (
+    TikZConversionError,
+    TikZConversionFileError,
+    TikZConversionService,
+    TikZConversionTimeoutError,
+)
+from .pdf import (
+    PDFConversionError,
+    PDFConversionFileError,
+    PDFConversionService,
+    PDFConversionTimeoutError,
+)
+from .svg_optimizer import (
+    SVGOptimizationError,
+    SVGOptimizationFileError,
+    SVGOptimizer,
+)
+from .asset_validator import (
+    AssetValidationError,
+    AssetValidationFileError,
+    AssetValidator,
+)
 
 __all__ = [
     # Tectonic services
@@ -71,4 +99,27 @@ __all__ = [
     "ConversionPipelineError",
     "PipelineTimeoutError",
     "PipelineResourceError",
+    # Asset conversion services
+    "AssetConversionService",
+    "AssetConversionError",
+    "AssetConversionTimeoutError",
+    "AssetConversionFileError",
+    # TikZ conversion services
+    "TikZConversionService",
+    "TikZConversionError",
+    "TikZConversionTimeoutError",
+    "TikZConversionFileError",
+    # PDF conversion services
+    "PDFConversionService",
+    "PDFConversionError",
+    "PDFConversionTimeoutError",
+    "PDFConversionFileError",
+    # SVG optimization services
+    "SVGOptimizer",
+    "SVGOptimizationError",
+    "SVGOptimizationFileError",
+    # Asset validation services
+    "AssetValidator",
+    "AssetValidationError",
+    "AssetValidationFileError",
 ]
