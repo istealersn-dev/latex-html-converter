@@ -489,16 +489,31 @@ def _extract_archive(input_file: Path, temp_dir: Path) -> Path:
     Returns:
         Path: Path to extracted directory
     """
+    import zipfile
+    import tarfile
+    
     extracted_dir = temp_dir / "extracted"
     extracted_dir.mkdir(exist_ok=True)
 
-    # TODO: Implement actual archive extraction
-    # For now, just create a mock structure
-    mock_tex_file = extracted_dir / "main.tex"
-    with open(mock_tex_file, "w", encoding="utf-8") as f:
-        f.write("\\documentclass{article}\n\\begin{document}\nHello World!\n\\end{document}")
-
-    return extracted_dir
+    try:
+        if input_file.suffix.lower() == '.zip':
+            with zipfile.ZipFile(input_file, 'r') as zip_ref:
+                zip_ref.extractall(extracted_dir)
+        elif input_file.suffix.lower() in ['.tar', '.gz'] or input_file.name.endswith('.tar.gz'):
+            with tarfile.open(input_file, 'r:*') as tar_ref:
+                tar_ref.extractall(extracted_dir)
+        else:
+            raise ValueError(f"Unsupported archive format: {input_file.suffix}")
+            
+        logger.info(f"Successfully extracted archive to: {extracted_dir}")
+        return extracted_dir
+        
+    except Exception as exc:
+        logger.error(f"Failed to extract archive {input_file}: {exc}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to extract archive: {exc}"
+        )
 
 
 def _find_main_tex_file(extracted_dir: Path) -> Path | None:

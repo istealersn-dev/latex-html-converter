@@ -116,7 +116,7 @@ async def check_dependencies() -> dict[str, bool]:
     try:
         # Check LaTeXML
         result = subprocess.run(
-            [settings.LATEXML_PATH, "--version"],
+            [settings.LATEXML_PATH, "--VERSION"],
             capture_output=True,
             text=True,
             timeout=5, check=False
