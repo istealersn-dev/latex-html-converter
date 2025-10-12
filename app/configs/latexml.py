@@ -114,9 +114,11 @@ class LaTeXMLSettings(BaseSettings):
         """
         # Use latexml for XML output, latexmlc for HTML output
         if self.output_format == "xml":
-            cmd = [self.latexml_path.replace("latexmlc", "latexml")]
+            # Convert latexmlc path to latexml path
+            latexml_path = str(self.latexml_path).replace("latexmlc", "latexml")
+            cmd = [latexml_path]
         else:
-            cmd = [self.latexml_path]
+            cmd = [str(self.latexml_path)]
 
         # Output settings
         cmd.extend(["--destination", str(output_file)])
@@ -143,11 +145,15 @@ class LaTeXMLSettings(BaseSettings):
             cmd.extend(["--preload", module])
 
         # Preamble and postamble
-        if self.preamble_file and hasattr(self.preamble_file, 'exists') and self.preamble_file.exists():
-            cmd.extend(["--preamble", str(self.preamble_file)])
+        if self.preamble_file is not None:
+            preamble_path = Path(self.preamble_file)
+            if preamble_path.exists():
+                cmd.extend(["--preamble", str(preamble_path)])
 
-        if self.postamble_file and hasattr(self.postamble_file, 'exists') and self.postamble_file.exists():
-            cmd.extend(["--postamble", str(self.postamble_file)])
+        if self.postamble_file is not None:
+            postamble_path = Path(self.postamble_file)
+            if postamble_path.exists():
+                cmd.extend(["--postamble", str(postamble_path)])
 
         # Input file (must be last)
         cmd.append(str(input_file))
