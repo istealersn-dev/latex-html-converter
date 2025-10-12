@@ -8,7 +8,7 @@ including conversion jobs, pipeline stages, and processing results.
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, List
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -37,6 +37,7 @@ class ConversionStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    SKIPPED = "skipped"
 
 
 class PipelineStage(BaseModel):
@@ -217,4 +218,51 @@ class ConversionOptions(BaseModel):
             raise ValueError("Maximum memory must be at least 256 MB")
         if v > 8192:  # 8 GB
             raise ValueError("Maximum memory cannot exceed 8192 MB")
+        return v
+
+
+class ConversionDiagnostics(BaseModel):
+    """Detailed diagnostics for failed conversions."""
+    
+    # Missing dependencies
+    missing_packages: List[str] = Field(default_factory=list, description="Missing LaTeX packages")
+    missing_files: List[str] = Field(default_factory=list, description="Missing referenced files")
+    custom_classes_found: List[str] = Field(default_factory=list, description="Custom document classes found")
+    
+    # Compilation errors
+    compilation_errors: List[str] = Field(default_factory=list, description="LaTeX compilation errors")
+    latexml_errors: List[str] = Field(default_factory=list, description="LaTeXML conversion errors")
+    
+    # Suggestions for resolution
+    suggestions: List[str] = Field(default_factory=list, description="Suggestions for fixing issues")
+    
+    # Package installation status
+    packages_installed: List[str] = Field(default_factory=list, description="Successfully installed packages")
+    packages_failed: List[str] = Field(default_factory=list, description="Failed to install packages")
+    
+    # File discovery status
+    files_discovered: int = Field(default=0, description="Number of files discovered in project")
+    files_extracted: int = Field(default=0, description="Number of files successfully extracted")
+    
+    # Project structure analysis
+    main_tex_file: str | None = Field(None, description="Main .tex file identified")
+    project_type: str | None = Field(None, description="Type of LaTeX project (article, book, etc.)")
+    complexity_score: float | None = Field(None, ge=0.0, le=100.0, description="Project complexity score")
+    
+    # Fallback information
+    tectonic_failed: bool = Field(default=False, description="Whether Tectonic compilation failed")
+    fallback_used: bool = Field(default=False, description="Whether fallback to LaTeXML-only was used")
+    fallback_reason: str | None = Field(None, description="Reason for fallback")
+    
+    # Quality assessment
+    conversion_quality: str | None = Field(None, description="Overall conversion quality assessment")
+    math_rendering: str | None = Field(None, description="Math rendering quality")
+    graphics_handling: str | None = Field(None, description="Graphics handling quality")
+    
+    @field_validator("complexity_score")
+    @classmethod
+    def validate_complexity_score(cls, v: float | None) -> float | None:
+        """Validate complexity score is within valid range."""
+        if v is not None and not 0.0 <= v <= 100.0:
+            raise ValueError("Complexity score must be between 0.0 and 100.0")
         return v

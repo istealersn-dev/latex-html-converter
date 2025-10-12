@@ -9,7 +9,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Install system dependencies
+# Install comprehensive LaTeX packages and system dependencies
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-dev \
@@ -20,16 +20,25 @@ RUN apt-get update && apt-get install -y \
     make \
     build-essential \
     wget \
+    texlive-full \
+    texlive-science \
+    texlive-publishers \
+    texlive-bibtex-extra \
+    texlive-latex-extra \
+    texlive-fonts-extra \
+    texlive-latex-recommended \
+    latexml \
+    poppler-utils \
+    dvisvgm \
     && rm -rf /var/lib/apt/lists/*
+
+# Configure tlmgr for package management
+RUN tlmgr init-usertree && \
+    tlmgr option repository https://mirror.ctan.org/systems/texlive/tlnet && \
+    tlmgr update --self
 
 # Create symbolic link for pdflatex as tectonic (since TeXLive has pdflatex but not tectonic)
 RUN ln -sf /usr/bin/pdflatex /usr/local/bin/tectonic
-
-# Install LaTeXML and PDF tools
-RUN apt-get update && apt-get install -y \
-    latexml \
-    poppler-utils \
-    && rm -rf /var/lib/apt/lists/*
 
 # Create symbolic link for python (if it doesn't exist)
 RUN ln -sf /usr/bin/python3 /usr/bin/python

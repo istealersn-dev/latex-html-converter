@@ -22,7 +22,7 @@ services:
       - LOG_LEVEL=DEBUG
       # Tool paths (Docker TeXLive paths)
       - TECTONIC_PATH=/usr/local/bin/tectonic
-      - LATEXML_PATH=/usr/bin/latexmlc
+      - LATEXML_LATEXML_PATH=/usr/bin/latexmlc
       - DVISVGM_PATH=/usr/bin/dvisvgm
       # File paths
       - UPLOAD_DIR=/app/uploads

@@ -58,6 +58,17 @@ class LaTeXMLSettings(BaseSettings):
         default=None,
         description="Optional postamble file to append"
     )
+    
+    # Package management
+    auto_install_packages: bool = Field(default=True, description="Automatically install missing packages")
+    package_install_timeout: int = Field(default=300, description="Package installation timeout in seconds")
+    
+    # Fallback behavior
+    enable_tectonic_fallback: bool = Field(default=True, description="Enable fallback to LaTeXML-only when Tectonic fails")
+    continue_on_tectonic_failure: bool = Field(default=True, description="Continue conversion when Tectonic fails")
+    
+    # Custom paths
+    custom_class_paths: list[str] = Field(default_factory=list, description="Custom paths for document classes")
 
     class Config:
         env_prefix = "LATEXML_"
@@ -154,6 +165,10 @@ class LaTeXMLSettings(BaseSettings):
             postamble_path = Path(self.postamble_file)
             if postamble_path.exists():
                 cmd.extend(["--postamble", str(postamble_path)])
+
+        # Custom class paths
+        for class_path in self.custom_class_paths:
+            cmd.extend(["--path", class_path])
 
         # Input file (must be last)
         cmd.append(str(input_file))
