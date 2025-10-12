@@ -102,7 +102,7 @@ class ConversionJob(BaseModel):
     @classmethod
     def validate_quality_score(cls, v: float | None) -> float | None:
         """Validate quality score is within valid range."""
-        if v is not None and not (0.0 <= v <= 100.0):
+        if v is not None and not 0.0 <= v <= 100.0:
             raise ValueError("Quality score must be between 0.0 and 100.0")
         return v
 
@@ -195,7 +195,7 @@ class ConversionOptions(BaseModel):
     @classmethod
     def validate_quality_threshold(cls, v: float) -> float:
         """Validate quality threshold is within valid range."""
-        if not (0.0 <= v <= 100.0):
+        if not 0.0 <= v <= 100.0:
             raise ValueError("Quality threshold must be between 0.0 and 100.0")
         return v
 

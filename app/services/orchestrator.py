@@ -5,7 +5,6 @@ This service manages the overall conversion workflow, job scheduling,
 resource management, and coordination between different services.
 """
 
-import logging
 import threading
 import time
 from datetime import datetime, timedelta
@@ -25,8 +24,6 @@ from app.models.conversion import (
 )
 from app.services.pipeline import ConversionPipeline
 
-logger = logging.getLogger(__name__)
-
 
 class OrchestrationError(Exception):
     """Base exception for orchestration errors."""
@@ -40,7 +37,7 @@ class ResourceLimitError(OrchestrationError):
     """Raised when resource limits are exceeded."""
 
 
-class ConversionOrchestrator:
+class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
     """Main conversion orchestrator service."""
 
     def __init__(

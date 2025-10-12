@@ -20,6 +20,9 @@ loguru = "^0.7.2"
 pylatexenc = "^2.10"
 # plasTeX = "^3.2.0"  # keep commented until needed
 psutil = "^7.1.0"
+cairosvg = "^2.8.2"
+pillow = "^11.3.0"
+svgwrite = "^1.4.3"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.2"

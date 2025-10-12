@@ -5,22 +5,27 @@ This module provides HTML post-processing functionality to clean, validate,
 and enhance LaTeXML-generated HTML output.
 """
 
-import logging
 import re
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup, NavigableString
-from lxml import etree, html
+from loguru import logger
 
 try:
+    from lxml import etree, html
     from lxml.html.clean import Cleaner
+    from lxml.etree import XMLSyntaxError
 except ImportError:
     # Fallback for systems without lxml
+    etree = None
+    html = None
     Cleaner = None
+    XMLSyntaxError = Exception
 
-logger = logging.getLogger(__name__)
+from app.services.assets import AssetConversionService
+from app.services.asset_validator import AssetValidator
 
 
 class HTMLPostProcessingError(Exception):
@@ -49,14 +54,23 @@ class HTMLCleaningError(HTMLPostProcessingError):
 class HTMLPostProcessor:
     """Service for post-processing LaTeXML HTML output."""
 
-    def __init__(self, base_url: str | None = None):
+    def __init__(
+        self, 
+        base_url: str | None = None,
+        asset_conversion_service: AssetConversionService | None = None,
+        asset_validator: AssetValidator | None = None
+    ):
         """
         Initialize HTML post-processor.
         
         Args:
             base_url: Base URL for resolving relative links
+            asset_conversion_service: Service for converting assets to SVG
+            asset_validator: Service for validating converted assets
         """
         self.base_url = base_url
+        self.asset_conversion_service = asset_conversion_service or AssetConversionService()
+        self.asset_validator = asset_validator or AssetValidator()
         self._setup_cleaner()
 
     def _setup_cleaner(self) -> None:
@@ -126,10 +140,13 @@ class HTMLPostProcessor:
             # Step 2: Validate HTML structure
             self._validate_html_structure(cleaned_soup, processing_results)
 
-            # Step 3: Enhance HTML
-            enhanced_soup = self._enhance_html(cleaned_soup, processing_results)
+            # Step 3: Convert assets to SVG
+            asset_converted_soup = self._convert_assets_to_svg(cleaned_soup, html_file.parent, processing_results)
 
-            # Step 4: Optimize HTML
+            # Step 4: Enhance HTML
+            enhanced_soup = self._enhance_html(asset_converted_soup, processing_results)
+
+            # Step 5: Optimize HTML
             optimized_soup = self._optimize_html(enhanced_soup, processing_results)
 
             # Generate output
@@ -301,8 +318,11 @@ class HTMLPostProcessor:
     def _enhance_html(self, soup: BeautifulSoup, results: dict[str, Any]) -> BeautifulSoup:
         """Enhance HTML with additional features."""
         try:
+            # Process mathematical expressions for MathJax compatibility
+            self._process_math_expressions(soup)
+            
             # Add MathJax support if math is present
-            if soup.find(['math', 'm:math']):
+            if soup.find(['math', 'm:math']) or soup.find_all(['span', 'div'], class_=['math', 'math-display']):
                 self._add_mathjax_support(soup)
 
             # Enhance links
@@ -328,7 +348,7 @@ class HTMLPostProcessor:
         head = soup.find('head')
         if head:
             # Add MathJax configuration
-            mathjax_config = soup.new_tag('script', type='text/x-mathjax-config')
+            mathjax_config = soup.new_tag('script', attrs={'type': 'text/x-mathjax-config'})
             mathjax_config.string = '''
             MathJax.Hub.Config({
                 tex2jax: {
@@ -342,9 +362,87 @@ class HTMLPostProcessor:
             head.append(mathjax_config)
 
             # Add MathJax script
-            mathjax_script = soup.new_tag('script',
-                                        src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?config=TeX-AMS-MML_HTMLorMML')
+            mathjax_script = soup.new_tag('script', attrs={'src': 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?config=TeX-AMS-MML_HTMLorMML'})
             head.append(mathjax_script)
+
+    def _process_math_expressions(self, soup: BeautifulSoup) -> None:
+        """Process mathematical expressions for MathJax compatibility."""
+        try:
+            self._process_inline_math(soup)
+            self._process_display_math(soup)
+            logger.info("Mathematical expressions processed for MathJax compatibility")
+            
+        except Exception as exc:
+            logger.error("Error processing mathematical expressions: %s", exc)
+
+    def _process_inline_math(self, soup: BeautifulSoup) -> None:
+        """Process inline math expressions ($...$)."""
+        for text_node in soup.find_all(string=True):
+            if not isinstance(text_node, NavigableString):
+                continue
+                
+            text = str(text_node)
+            if '$' not in text:
+                continue
+                
+            parts = text.split('$')
+            if len(parts) <= 1:
+                continue
+                
+            new_content = self._build_inline_math_content(soup, parts)
+            if len(new_content) > 1:
+                text_node.replace_with(*new_content)
+
+    def _build_inline_math_content(self, soup: BeautifulSoup, parts: list) -> list:
+        """Build content for inline math expressions."""
+        new_content = []
+        for i, part in enumerate(parts):
+            if i % 2 == 0:  # Even indices are regular text
+                new_content.append(part)
+            else:  # Odd indices are math expressions
+                if part.strip():  # Only process non-empty math
+                    math_span = soup.new_tag('span', attrs={'class': 'math'})
+                    math_span.string = f'${part}$'
+                    new_content.append(math_span)
+        return new_content
+
+    def _process_display_math(self, soup: BeautifulSoup) -> None:
+        """Process display math expressions ($$...$$)."""
+        for p in soup.find_all('p'):
+            text = p.get_text()
+            if '$$' not in text:
+                continue
+                
+            parts = text.split('$$')
+            if len(parts) <= 1:
+                continue
+                
+            new_content = self._build_display_math_content(soup, parts)
+            if len(new_content) > 1:
+                self._replace_paragraph_content(p, new_content)
+
+    def _build_display_math_content(self, soup: BeautifulSoup, parts: list) -> list:
+        """Build content for display math expressions."""
+        new_content = []
+        for i, part in enumerate(parts):
+            if i % 2 == 0:  # Even indices are regular text
+                if part.strip():
+                    new_content.append(part)
+            else:  # Odd indices are display math
+                if part.strip():  # Only process non-empty math
+                    math_div = soup.new_tag('div', attrs={'class': 'math-display'})
+                    math_div.string = f'$${part}$$'
+                    new_content.append(math_div)
+        return new_content
+
+    def _replace_paragraph_content(self, p, new_content: list) -> None:
+        """Replace paragraph content with new content."""
+        p.clear()
+        for content in new_content:
+            if isinstance(content, str):
+                p.append(content)
+            else:
+                p.append(content)
 
     def _enhance_links(self, soup: BeautifulSoup) -> None:
         """Enhance links with proper attributes."""
@@ -372,14 +470,14 @@ class HTMLPostProcessor:
         """Add responsive meta tag."""
         head = soup.find('head')
         if head and not head.find('meta', attrs={'name': 'viewport'}):
-            viewport_meta = soup.new_tag('meta', name='viewport', content='width=device-width, initial-scale=1.0')
+            viewport_meta = soup.new_tag('meta', attrs={'name': 'viewport', 'content': 'width=device-width, initial-scale=1.0'})
             head.append(viewport_meta)
 
     def _add_enhancement_css(self, soup: BeautifulSoup) -> None:
         """Add CSS for better styling."""
         head = soup.find('head')
         if head:
-            style = soup.new_tag('style', type='text/css')
+            style = soup.new_tag('style', attrs={'type': 'text/css'})
             style.string = '''
             body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
             .math { font-family: "Times New Roman", serif; }
@@ -424,6 +522,237 @@ class HTMLPostProcessor:
             # Add loading="lazy" for performance
             if not img.get('loading'):
                 img['loading'] = 'lazy'
+
+    def _convert_assets_to_svg(self, soup: BeautifulSoup, html_dir: Path, results: dict[str, Any]) -> BeautifulSoup:
+        """Convert assets (TikZ, PDF) to SVG format."""
+        try:
+            # Create assets directory
+            assets_dir = html_dir / "assets"
+            assets_dir.mkdir(exist_ok=True)
+            
+            # Find and convert TikZ diagrams
+            tikz_diagrams = self._find_tikz_diagrams(soup)
+            if tikz_diagrams:
+                logger.info("Found %d TikZ diagrams to convert", len(tikz_diagrams))
+                self._convert_tikz_diagrams(tikz_diagrams, assets_dir, results)
+            
+            # Find and convert PDF figures
+            pdf_figures = self._find_pdf_figures(soup)
+            if pdf_figures:
+                logger.info("Found %d PDF figures to convert", len(pdf_figures))
+                self._convert_pdf_figures(pdf_figures, assets_dir, results)
+            
+            # Find and convert image assets
+            image_assets = self._find_image_assets(soup)
+            if image_assets:
+                logger.info("Found %d image assets to convert", len(image_assets))
+                self._convert_image_assets(image_assets, assets_dir, results)
+            
+            results["steps_completed"].append("asset_conversion")
+            return soup
+            
+        except Exception as exc:
+            error_msg = f"Asset conversion failed: {exc}"
+            results["errors"].append(error_msg)
+            logger.error(error_msg)
+            return soup
+
+    def _find_tikz_diagrams(self, soup: BeautifulSoup) -> list[dict[str, Any]]:
+        """Find TikZ diagrams in the HTML."""
+        tikz_diagrams = []
+        
+        # Look for tikzpicture environments
+        for tikz in soup.find_all('div', class_='tikzpicture'):
+            tikz_diagrams.append({
+                'element': tikz,
+                'type': 'tikz',
+                'content': tikz.get_text(),
+                'id': tikz.get('id', ''),
+                'class': tikz.get('class', [])
+            })
+        
+        # Look for LaTeX tikz environments
+        for tikz in soup.find_all('div', attrs={'data-latexml': True}):
+            if 'tikz' in str(tikz.get('class', [])).lower():
+                tikz_diagrams.append({
+                    'element': tikz,
+                    'type': 'tikz',
+                    'content': tikz.get_text(),
+                    'id': tikz.get('id', ''),
+                    'class': tikz.get('class', [])
+                })
+        
+        return tikz_diagrams
+
+    def _find_pdf_figures(self, soup: BeautifulSoup) -> list[dict[str, Any]]:
+        """Find PDF figures in the HTML."""
+        pdf_figures = []
+        
+        # Look for PDF links
+        for link in soup.find_all('a', href=True):
+            href = link.get('href', '')
+            if href.lower().endswith('.pdf'):
+                pdf_figures.append({
+                    'element': link,
+                    'type': 'pdf',
+                    'href': href,
+                    'id': link.get('id', ''),
+                    'class': link.get('class', [])
+                })
+        
+        # Look for embedded PDF objects
+        for obj in soup.find_all('object', attrs={'data': True}):
+            data = obj.get('data', '')
+            if data.lower().endswith('.pdf'):
+                pdf_figures.append({
+                    'element': obj,
+                    'type': 'pdf',
+                    'href': data,
+                    'id': obj.get('id', ''),
+                    'class': obj.get('class', [])
+                })
+        
+        return pdf_figures
+
+    def _find_image_assets(self, soup: BeautifulSoup) -> list[dict[str, Any]]:
+        """Find image assets that could be converted to SVG."""
+        image_assets = []
+        
+        # Look for images
+        for img in soup.find_all('img', src=True):
+            src = img.get('src', '')
+            # Only convert certain image types
+            if src.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+                image_assets.append({
+                    'element': img,
+                    'type': 'image',
+                    'src': src,
+                    'id': img.get('id', ''),
+                    'class': img.get('class', [])
+                })
+        
+        return image_assets
+
+    def _convert_tikz_diagrams(self, tikz_diagrams: list[dict[str, Any]], assets_dir: Path, results: dict[str, Any]) -> None:
+        """Convert TikZ diagrams to SVG."""
+        try:
+            for i, tikz in enumerate(tikz_diagrams):
+                # Create temporary TikZ file
+                tikz_file = assets_dir / f"tikz_diagram_{i}.tex"
+                with open(tikz_file, 'w', encoding='utf-8') as f:
+                    f.write(f"\\documentclass{{standalone}}\n\\usepackage{{tikz}}\n\\begin{{document}}\n{tikz['content']}\n\\end{{document}}")
+                
+                # Convert to SVG
+                conversion_result = self.asset_conversion_service.convert_assets(
+                    assets_dir,
+                    assets_dir,
+                    asset_types=["tikz"],
+                    options={"timeout": 300}
+                )
+                
+                if conversion_result.get("success"):
+                    # Get the actual output file from conversion result
+                    output_file = conversion_result.get("output_file")
+                    if output_file and Path(output_file).exists():
+                        svg_file = Path(output_file)
+                        self._replace_element_with_svg(tikz['element'], svg_file)
+                        results.setdefault("converted_assets", []).append({
+                            "type": "tikz",
+                            "original": tikz['id'],
+                            "svg_file": str(svg_file),
+                            "success": True
+                        })
+                    else:
+                        # Fallback: try the expected filename pattern with _wrapper suffix
+                        svg_file = assets_dir / f"tikz_diagram_{i}_wrapper.svg"
+                        if svg_file.exists():
+                            self._replace_element_with_svg(tikz['element'], svg_file)
+                            results.setdefault("converted_assets", []).append({
+                                "type": "tikz",
+                                "original": tikz['id'],
+                                "svg_file": str(svg_file),
+                                "success": True
+                            })
+                else:
+                    results.setdefault("failed_assets", []).append({
+                        "type": "tikz",
+                        "original": tikz['id'],
+                        "error": "Conversion failed"
+                    })
+                    
+        except Exception as exc:
+            logger.error("TikZ conversion failed: %s", exc)
+            results.setdefault("failed_assets", []).append({
+                "type": "tikz",
+                "error": str(exc)
+            })
+
+    def _convert_pdf_figures(self, pdf_figures: list[dict[str, Any]], assets_dir: Path, results: dict[str, Any]) -> None:
+        """Convert PDF figures to SVG."""
+        try:
+            for i, pdf in enumerate(pdf_figures):
+                # Download or copy PDF file
+                pdf_file = assets_dir / f"pdf_figure_{i}.pdf"
+                # TODO: Implement PDF file handling
+                
+                # Convert to SVG
+                conversion_result = self.asset_conversion_service.convert_assets(
+                    assets_dir,
+                    assets_dir,
+                    asset_types=["pdf"],
+                    options={"timeout": 300}
+                )
+                
+                if conversion_result.get("success"):
+                    # Replace PDF element with SVG
+                    svg_file = assets_dir / f"pdf_figure_{i}.svg"
+                    if svg_file.exists():
+                        self._replace_element_with_svg(pdf['element'], svg_file)
+                        results.setdefault("converted_assets", []).append({
+                            "type": "pdf",
+                            "original": pdf['id'],
+                            "svg_file": str(svg_file),
+                            "success": True
+                        })
+                else:
+                    results.setdefault("failed_assets", []).append({
+                        "type": "pdf",
+                        "original": pdf['id'],
+                        "error": "Conversion failed"
+                    })
+                    
+        except Exception as exc:
+            logger.error("PDF conversion failed: %s", exc)
+            results.setdefault("failed_assets", []).append({
+                "type": "pdf",
+                "error": str(exc)
+            })
+
+    def _convert_image_assets(self, image_assets: list[dict[str, Any]], assets_dir: Path, results: dict[str, Any]) -> None:
+        """Convert image assets to SVG (placeholder for future implementation)."""
+        # TODO: Implement image to SVG conversion
+        logger.info("Image to SVG conversion not yet implemented for %d assets", len(image_assets))
+
+    def _replace_element_with_svg(self, element, svg_file: Path) -> None:
+        """Replace an HTML element with an SVG element."""
+        try:
+            # Read SVG content
+            with open(svg_file, 'r', encoding='utf-8') as f:
+                svg_content = f.read()
+            
+            # Create new SVG element
+            new_svg = BeautifulSoup(svg_content, 'html.parser').find('svg')
+            if new_svg:
+                # Preserve original attributes
+                for attr in ['id', 'class', 'style']:
+                    if element.get(attr):
+                        new_svg[attr] = element.get(attr)
+                
+                # Replace the element
+                element.replace_with(new_svg)
+                
+        except Exception as exc:
+            logger.error("Failed to replace element with SVG: %s", exc)
 
     def _remove_unnecessary_attributes(self, soup: BeautifulSoup) -> None:
         """Remove unnecessary attributes while preserving namespace declarations."""
@@ -476,7 +805,7 @@ class HTMLPostProcessor:
                 html.fromstring(html_content)
                 is_valid = True
                 validation_errors = []
-            except etree.XMLSyntaxError as exc:
+            except XMLSyntaxError as exc:
                 is_valid = False
                 validation_errors = [str(exc)]
 

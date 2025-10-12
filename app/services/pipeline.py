@@ -5,7 +5,6 @@ This service orchestrates the complete conversion workflow:
 Tectonic → LaTeXML → HTML Post-Processing
 """
 
-import logging
 import threading
 import time
 from datetime import datetime
@@ -28,8 +27,6 @@ from app.services.latexml import LaTeXMLError, LaTeXMLService
 from app.services.tectonic import TectonicCompilationError, TectonicService
 from app.utils.fs import cleanup_directory, ensure_directory, get_file_info
 
-logger = logging.getLogger(__name__)
-
 
 class ConversionPipelineError(Exception):
     """Base exception for conversion pipeline errors."""
@@ -48,7 +45,7 @@ class PipelineResourceError(ConversionPipelineError):
     """Raised when pipeline exceeds resource limits."""
 
 
-class ConversionPipeline:
+class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
     """Main conversion pipeline orchestrator."""
 
     def __init__(
@@ -65,8 +62,10 @@ class ConversionPipeline:
             latexml_service: LaTeXML service instance
             html_processor: HTML post-processor instance
         """
-        self.tectonic_service = tectonic_service or TectonicService()
-        self.latexml_service = latexml_service or LaTeXMLService()
+        from app.config import settings
+        from app.configs.latexml import LaTeXMLSettings
+        self.tectonic_service = tectonic_service or TectonicService(tectonic_path=settings.TECTONIC_PATH)
+        self.latexml_service = latexml_service or LaTeXMLService(settings=LaTeXMLSettings(latexml_path=settings.LATEXML_PATH))
         self.html_processor = html_processor or HTMLPostProcessor()
 
         # Pipeline configuration

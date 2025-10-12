@@ -5,17 +5,16 @@ This module provides the LaTeXMLService class for converting LaTeX documents
 to XML/HTML using LaTeXML with proper error handling and configuration.
 """
 
-import logging
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from app.configs.latexml import LaTeXMLConversionOptions, LaTeXMLSettings
 from app.utils.fs import ensure_directory, get_file_info
 from app.utils.shell import run_command_safely
-
-logger = logging.getLogger(__name__)
 
 
 class LaTeXMLError(Exception):
