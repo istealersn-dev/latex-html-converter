@@ -43,7 +43,7 @@ class Settings(BaseSettings):
 
     # External tools settings
     TECTONIC_PATH: str = "/usr/local/bin/tectonic"
-    LATEXML_PATH: str = "/usr/bin/latexml"
+    LATEXML_PATH: str = "/opt/homebrew/bin/latexmlc"
     DVISVGM_PATH: str = "/usr/bin/dvisvgm"
 
     # Conversion settings

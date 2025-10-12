@@ -173,7 +173,7 @@ class LaTeXMLService:
 
                 # Parse conversion results
                 conversion_result = self._parse_conversion_result(
-                    input_file, output_file, result.stdout, result.stderr
+                    input_file, output_file, result.stdout, result.stderr, settings
                 )
 
                 # Validate output file was created
@@ -293,7 +293,8 @@ class LaTeXMLService:
         input_file: Path,
         output_file: Path,
         stdout: str,
-        stderr: str
+        stderr: str,
+        settings: LaTeXMLSettings
     ) -> dict[str, Any]:
         """
         Parse LaTeXML conversion results.
@@ -322,10 +323,10 @@ class LaTeXMLService:
             "warnings": warnings,
             "info_messages": info_messages,
             "conversion_time": None,  # Could be added with timing
-            "format": self.settings.output_format,
-            "mathml_included": self.settings.include_mathml,
-            "css_included": self.settings.include_css,
-            "javascript_included": self.settings.include_javascript,
+            "format": settings.output_format,
+            "mathml_included": settings.include_mathml,
+            "css_included": settings.include_css,
+            "javascript_included": settings.include_javascript,
         }
 
     def _extract_warnings(self, stderr: str) -> list[str]:

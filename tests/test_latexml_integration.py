@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from app.config.latexml import LaTeXMLConversionOptions, LaTeXMLSettings
+from app.configs.latexml import LaTeXMLConversionOptions, LaTeXMLSettings
 from app.services.latexml import LaTeXMLConversionError, LaTeXMLService
 
 

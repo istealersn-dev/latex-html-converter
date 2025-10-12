@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from app.config.latexml import LaTeXMLConversionOptions, LaTeXMLSettings
+from app.configs.latexml import LaTeXMLConversionOptions, LaTeXMLSettings
 from app.services.latexml import (
     LaTeXMLConversionError,
     LaTeXMLFileError,
@@ -276,7 +276,7 @@ class TestLaTeXMLService:
         assert "box" in formats
 
     @patch('app.services.latexml.run_command_safely')
-    def test_get_version_info_success(self):
+    def test_get_version_info_success(self, mock_run_command):
         """Test getting version info successfully."""
         mock_result = Mock()
         mock_result.returncode = 0

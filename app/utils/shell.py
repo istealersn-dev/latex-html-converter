@@ -132,9 +132,12 @@ def _validate_command_safety(cmd: list[str]) -> None:
         # Allow some safe characters but log warning
         logger.warning(f"Command contains potentially unsafe characters: {cmd_str}")
 
-    # Additional security checks
-    if any(word in cmd_str for word in ['sudo', 'su', 'chmod', 'chown', 'passwd']):
-        raise ValueError(f"Potentially dangerous command detected: {cmd_str}")
+    # Additional security checks (but allow LaTeXML commands)
+    dangerous_commands = ['sudo', 'su', 'chmod', 'chown', 'passwd']
+    if any(word in cmd_str for word in dangerous_commands):
+        # Allow LaTeXML commands even if they contain these words in paths
+        if not any(latex_cmd in cmd_str for latex_cmd in ['latexml', 'latexmlc', 'pdflatex', 'tectonic']):
+            raise ValueError(f"Potentially dangerous command detected: {cmd_str}")
 
     # Check for path traversal attempts
     if '..' in cmd_str or '/etc/' in cmd_str or '/sys/' in cmd_str:

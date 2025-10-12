@@ -15,7 +15,7 @@ class LaTeXMLSettings(BaseSettings):
     """LaTeXML configuration settings."""
 
     # LaTeXML executable path
-    latexml_path: str = Field(default="latexml", description="Path to LaTeXML executable")
+    latexml_path: str = Field(default="/opt/homebrew/bin/latexmlc", description="Path to LaTeXML executable")
 
     # Output format settings
     output_format: str = Field(default="html", description="Output format (html, xml)")
@@ -112,7 +112,11 @@ class LaTeXMLSettings(BaseSettings):
         Returns:
             List of command arguments
         """
-        cmd = [self.latexml_path]
+        # Use latexml for XML output, latexmlc for HTML output
+        if self.output_format == "xml":
+            cmd = [self.latexml_path.replace("latexmlc", "latexml")]
+        else:
+            cmd = [self.latexml_path]
 
         # Output settings
         cmd.extend(["--destination", str(output_file)])
