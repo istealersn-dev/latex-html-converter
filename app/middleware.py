@@ -6,11 +6,12 @@ and other cross-cutting concerns.
 """
 
 import time
-from typing import Any, Dict
+import uuid
+from typing import Any
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from loguru import logger
-import uuid
 
 
 class LoggingMiddleware:
@@ -30,7 +31,7 @@ class LoggingMiddleware:
         """
         self.app = app
 
-    async def __call__(self, scope: Dict[str, Any], receive: Any, send: Any) -> None:
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         """
         Process the request and add logging.
 
@@ -88,7 +89,7 @@ class ErrorHandlingMiddleware:
         """
         self.app = app
 
-    async def __call__(self, scope: Dict[str, Any], receive: Any, send: Any) -> None:
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         """
         Process the request with error handling.
 
@@ -134,7 +135,7 @@ class SecurityMiddleware:
         """
         self.app = app
 
-    async def __call__(self, scope: Dict[str, Any], receive: Any, send: Any) -> None:
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         """
         Process the request with security checks.
 
@@ -148,7 +149,7 @@ class SecurityMiddleware:
             return
 
         # Add security headers
-        async def send_wrapper(message: Dict[str, Any]) -> None:
+        async def send_wrapper(message: dict[str, Any]) -> None:
             if message["type"] == "http.response.start":
                 headers = list(message.get("headers", []))
                 headers.extend([

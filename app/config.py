@@ -5,7 +5,7 @@ This module handles environment variables, application settings,
 and configuration validation using Pydantic Settings.
 """
 
-from typing import List
+
 from pydantic import validator
 from pydantic_settings import BaseSettings
 
@@ -29,15 +29,15 @@ class Settings(BaseSettings):
     PORT: int = 8000
 
     # CORS settings
-    ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8080"]
-    ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1"]
+    ALLOWED_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8080"]
+    ALLOWED_HOSTS: list[str] = ["localhost", "127.0.0.1"]
 
     # Logging settings
     LOG_LEVEL: str = "INFO"
 
     # File upload settings
     MAX_FILE_SIZE: int = 100 * 1024 * 1024  # 100MB
-    ALLOWED_EXTENSIONS: List[str] = [".zip", ".tar.gz", ".tar"]
+    ALLOWED_EXTENSIONS: list[str] = [".zip", ".tar.gz", ".tar"]
     UPLOAD_DIR: str = "uploads"
     OUTPUT_DIR: str = "outputs"
 
@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "your-secret-key-change-in-production"
 
     @validator("ENVIRONMENT")
-    def validate_environment(cls, v: str) -> str:
+    def validate_environment(self, v: str) -> str:
         """Validate environment setting."""
         allowed_envs = ["development", "staging", "production"]
         if v not in allowed_envs:
@@ -62,7 +62,7 @@ class Settings(BaseSettings):
         return v
 
     @validator("LOG_LEVEL")
-    def validate_log_level(cls, v: str) -> str:
+    def validate_log_level(self, v: str) -> str:
         """Validate log level setting."""
         allowed_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         if v.upper() not in allowed_levels:
@@ -70,7 +70,7 @@ class Settings(BaseSettings):
         return v.upper()
 
     @validator("MAX_FILE_SIZE")
-    def validate_max_file_size(cls, v: int) -> int:
+    def validate_max_file_size(self, v: int) -> int:
         """Validate maximum file size."""
         if v <= 0:
             raise ValueError("MAX_FILE_SIZE must be positive")

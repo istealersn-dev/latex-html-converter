@@ -4,18 +4,18 @@ Conversion API endpoints for the LaTeX → HTML5 Converter application.
 This module provides endpoints for file upload and conversion processing.
 """
 
-import os
-import uuid
-import tempfile
-import shutil
 import json
+import os
+import shutil
+import tempfile
 import threading
 import time
-from typing import Optional, Dict, Any
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from loguru import logger
 
@@ -27,19 +27,19 @@ router = APIRouter()
 
 # In-memory storage for conversion tracking
 # In production, this should be replaced with a proper database
-_conversion_storage: Dict[str, Dict[str, Any]] = {}
+_conversion_storage: dict[str, dict[str, Any]] = {}
 _storage_lock = threading.RLock()  # Reentrant lock for thread safety
 
 
 # Helper functions (defined before use)
 
-def _safe_get_conversion(conversion_id: str) -> Optional[Dict[str, Any]]:
+def _safe_get_conversion(conversion_id: str) -> dict[str, Any] | None:
     """
     Thread-safe get conversion data.
-    
+
     Args:
         conversion_id: Conversion ID to retrieve
-        
+
     Returns:
         Conversion data or None if not found
     """
@@ -47,10 +47,10 @@ def _safe_get_conversion(conversion_id: str) -> Optional[Dict[str, Any]]:
         return _conversion_storage.get(conversion_id)
 
 
-def _safe_set_conversion(conversion_id: str, data: Dict[str, Any]) -> None:
+def _safe_set_conversion(conversion_id: str, data: dict[str, Any]) -> None:
     """
     Thread-safe set conversion data.
-    
+
     Args:
         conversion_id: Conversion ID to store
         data: Conversion data to store
@@ -59,13 +59,13 @@ def _safe_set_conversion(conversion_id: str, data: Dict[str, Any]) -> None:
         _conversion_storage[conversion_id] = data
 
 
-def _safe_remove_conversion(conversion_id: str) -> Optional[Dict[str, Any]]:
+def _safe_remove_conversion(conversion_id: str) -> dict[str, Any] | None:
     """
     Thread-safe remove conversion data.
-    
+
     Args:
         conversion_id: Conversion ID to remove
-        
+
     Returns:
         Removed conversion data or None if not found
     """
@@ -73,14 +73,14 @@ def _safe_remove_conversion(conversion_id: str) -> Optional[Dict[str, Any]]:
         return _conversion_storage.pop(conversion_id, None)
 
 
-def _safe_update_conversion(conversion_id: str, updates: Dict[str, Any]) -> bool:
+def _safe_update_conversion(conversion_id: str, updates: dict[str, Any]) -> bool:
     """
     Thread-safe update conversion data.
-    
+
     Args:
         conversion_id: Conversion ID to update
         updates: Updates to apply
-        
+
     Returns:
         True if conversion existed and was updated, False otherwise
     """
@@ -94,7 +94,7 @@ def _safe_update_conversion(conversion_id: str, updates: Dict[str, Any]) -> bool
 def _schedule_delayed_cleanup(conversion_id: str, cleanup_time: datetime) -> None:
     """
     Schedule delayed cleanup for a conversion using threading.
-    
+
     Args:
         conversion_id: Conversion ID to clean up
         cleanup_time: When to perform cleanup
@@ -107,7 +107,7 @@ def _schedule_delayed_cleanup(conversion_id: str, cleanup_time: datetime) -> Non
             if cleanup_time > now:
                 wait_seconds = (cleanup_time - now).total_seconds()
                 time.sleep(wait_seconds)
-            
+
             # Check if conversion still exists and hasn't been accessed recently
             conversion_data = _safe_get_conversion(conversion_id)
             if conversion_data and not conversion_data.get("cleanup_scheduled", False):
@@ -116,13 +116,13 @@ def _schedule_delayed_cleanup(conversion_id: str, cleanup_time: datetime) -> Non
                     # Clean up the files
                     temp_dir = Path(conversion_data["temp_dir"])
                     _cleanup_temp_directory(temp_dir)
-                    
+
                     # Remove from storage
                     _safe_remove_conversion(conversion_id)
                     logger.info(f"Scheduled cleanup completed for conversion {conversion_id}")
         except Exception as exc:
             logger.error(f"Cleanup thread failed for conversion {conversion_id}: {exc}")
-    
+
     # Start cleanup thread
     cleanup_thread = threading.Thread(
         target=_delayed_cleanup,
@@ -136,25 +136,25 @@ def _schedule_delayed_cleanup(conversion_id: str, cleanup_time: datetime) -> Non
 def _create_result_zip(temp_dir: Path, output_zip: Path) -> None:
     """
     Create a ZIP file containing the conversion results.
-    
+
     Args:
         temp_dir: Temporary directory containing results
         output_zip: Path for the output ZIP file
     """
     import zipfile
-    
+
     try:
         with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as zipf:
             # Add HTML file
             html_file = temp_dir / "output" / "index.html"
             if html_file.exists():
                 zipf.write(html_file, "index.html")
-            
+
             # Add assets
             output_dir = temp_dir / "output"
             for asset_file in output_dir.glob("*.svg"):
                 zipf.write(asset_file, asset_file.name)
-        
+
         logger.info(f"Created result ZIP: {output_zip}")
     except Exception as exc:
         logger.error(f"Failed to create result ZIP: {exc}")
@@ -164,7 +164,7 @@ def _create_result_zip(temp_dir: Path, output_zip: Path) -> None:
 def _cleanup_temp_directory(temp_dir: Path) -> None:
     """
     Clean up temporary directory.
-    
+
     Args:
         temp_dir: Temporary directory to clean up
     """
@@ -179,7 +179,7 @@ def _cleanup_temp_directory(temp_dir: Path) -> None:
 async def convert_latex_to_html(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    options: Optional[str] = Form(None)
+    options: str | None = Form(None)
 ) -> ConversionResponse:
     """
     Convert LaTeX project to HTML5.
@@ -193,12 +193,12 @@ async def convert_latex_to_html(
         ConversionResponse: Conversion result with HTML and assets
     """
     conversion_id = str(uuid.uuid4())
-    
+
     try:
         # Validate file
         if not file.filename:
             raise HTTPException(status_code=400, detail="No file provided")
-        
+
         # Check file extension
         file_ext = os.path.splitext(file.filename)[1].lower()
         if file_ext not in settings.ALLOWED_EXTENSIONS:
@@ -206,55 +206,55 @@ async def convert_latex_to_html(
                 status_code=400,
                 detail=f"File type not supported. Allowed: {settings.ALLOWED_EXTENSIONS}"
             )
-        
+
         # Read file content
         file_content = await file.read()
-        
+
         # Check file size
         if len(file_content) > settings.MAX_FILE_SIZE:
             raise HTTPException(
                 status_code=413,
                 detail=f"File too large. Maximum size: {settings.MAX_FILE_SIZE} bytes"
             )
-        
+
         # Validate file content (basic security check)
         if not _validate_file_content(file_content, file_ext):
             raise HTTPException(
                 status_code=400,
                 detail="Invalid file content or potential security risk"
             )
-        
+
         # Parse conversion options
         conversion_options = _parse_conversion_options(options)
-        
+
         logger.info(f"Starting conversion {conversion_id} for file: {file.filename}")
-        
+
         # Create temporary directory for processing
         temp_dir = Path(tempfile.mkdtemp(prefix=f"conversion_{conversion_id}_"))
-        
+
         try:
             # Save uploaded file
             input_file = temp_dir / f"input{file_ext}"
             with open(input_file, "wb") as f:
                 f.write(file_content)
-            
+
             # Extract archive if needed
             extracted_dir = _extract_archive(input_file, temp_dir)
             logger.info(f"Extracted archive to: {extracted_dir}")
-            
+
             # TODO: Implement actual conversion logic
             # For now, create a mock response
             output_dir = temp_dir / "output"
             output_dir.mkdir(exist_ok=True)
-            
+
             # Create mock HTML file
             html_file = output_dir / "index.html"
             with open(html_file, "w", encoding="utf-8") as f:
                 f.write(_create_mock_html(file.filename))
-            
+
             # Create mock assets
             assets = _create_mock_assets(output_dir)
-            
+
             # Store conversion metadata for tracking
             _safe_set_conversion(conversion_id, {
                 "temp_dir": str(temp_dir),
@@ -263,11 +263,11 @@ async def convert_latex_to_html(
                 "created_at": datetime.utcnow(),
                 "cleanup_scheduled": False
             })
-            
+
             # Schedule delayed cleanup (e.g., 1 hour from now)
             cleanup_time = datetime.utcnow() + timedelta(hours=1)
             background_tasks.add_task(_schedule_delayed_cleanup, conversion_id, cleanup_time)
-            
+
             response = ConversionResponse(
                 conversion_id=conversion_id,
                 status=ConversionStatus.COMPLETED,
@@ -282,14 +282,14 @@ async def convert_latex_to_html(
                     "options": conversion_options.model_dump() if conversion_options else {}
                 }
             )
-            
+
             logger.info(f"Conversion {conversion_id} completed successfully")
             return response
-            
-        except Exception as exc:
+
+        except Exception:
             # Cleanup on error
             shutil.rmtree(temp_dir, ignore_errors=True)
-            raise exc
+            raise
 
     except HTTPException:
         raise
@@ -314,7 +314,7 @@ async def get_conversion_status(conversion_id: str) -> ConversionStatusResponse:
         conversion_data = _safe_get_conversion(conversion_id)
         if not conversion_data:
             raise HTTPException(status_code=404, detail="Conversion not found")
-        
+
         # Check if files still exist
         temp_dir = Path(conversion_data["temp_dir"])
         if not temp_dir.exists():
@@ -327,7 +327,7 @@ async def get_conversion_status(conversion_id: str) -> ConversionStatusResponse:
                 created_at=conversion_data["created_at"],
                 updated_at=datetime.utcnow()
             )
-        
+
         return ConversionStatusResponse(
             conversion_id=conversion_id,
             status=ConversionStatus.COMPLETED,
@@ -359,7 +359,7 @@ async def download_conversion_result(conversion_id: str) -> FileResponse:
         conversion_data = _safe_get_conversion(conversion_id)
         if not conversion_data:
             raise HTTPException(status_code=404, detail="Conversion not found")
-        
+
         # Check if files still exist
         temp_dir = Path(conversion_data["temp_dir"])
         if not temp_dir.exists():
@@ -367,17 +367,17 @@ async def download_conversion_result(conversion_id: str) -> FileResponse:
                 status_code=410,
                 detail="Conversion files have been cleaned up"
             )
-        
+
         # Create a ZIP file with the conversion results
         output_zip = temp_dir / f"{conversion_id}_result.zip"
         _create_result_zip(temp_dir, output_zip)
-        
+
         if not output_zip.exists():
             raise HTTPException(
                 status_code=500,
                 detail="Failed to create download package"
             )
-        
+
         return FileResponse(
             path=str(output_zip),
             filename=f"conversion_{conversion_id}.zip",
@@ -395,18 +395,18 @@ async def download_conversion_result(conversion_id: str) -> FileResponse:
 def _validate_file_content(file_content: bytes, file_ext: str) -> bool:
     """
     Validate file content for security and format.
-    
+
     Args:
         file_content: File content as bytes
         file_ext: File extension
-        
+
     Returns:
         bool: True if file is valid, False otherwise
     """
     # Basic security checks
     if len(file_content) == 0:
         return False
-    
+
     # Check for suspicious patterns
     suspicious_patterns = [
         b'<script',
@@ -417,13 +417,13 @@ def _validate_file_content(file_content: bytes, file_ext: str) -> bool:
         b'<object',
         b'<embed'
     ]
-    
+
     content_lower = file_content.lower()
     for pattern in suspicious_patterns:
         if pattern in content_lower:
             logger.warning(f"Suspicious pattern found in uploaded file: {pattern!r}")
             return False
-    
+
     # File-specific validation
     if file_ext == '.zip':
         # Check ZIP file signature
@@ -431,23 +431,23 @@ def _validate_file_content(file_content: bytes, file_ext: str) -> bool:
     elif file_ext in ['.tar', '.tar.gz']:
         # Basic tar file validation
         return len(file_content) > 512  # Minimum tar file size
-    
+
     return True
 
 
-def _parse_conversion_options(options: Optional[str]) -> Optional[ConversionOptions]:
+def _parse_conversion_options(options: str | None) -> ConversionOptions | None:
     """
     Parse conversion options from JSON string.
-    
+
     Args:
         options: JSON string of conversion options
-        
+
     Returns:
         ConversionOptions: Parsed options or None
     """
     if not options:
         return None
-    
+
     try:
         options_dict = json.loads(options)
         return ConversionOptions(**options_dict)
@@ -459,33 +459,33 @@ def _parse_conversion_options(options: Optional[str]) -> Optional[ConversionOpti
 def _extract_archive(input_file: Path, temp_dir: Path) -> Path:
     """
     Extract archive file to temporary directory.
-    
+
     Args:
         input_file: Path to input archive file
         temp_dir: Temporary directory for extraction
-        
+
     Returns:
         Path: Path to extracted directory
     """
     extracted_dir = temp_dir / "extracted"
     extracted_dir.mkdir(exist_ok=True)
-    
+
     # TODO: Implement actual archive extraction
     # For now, just create a mock structure
     mock_tex_file = extracted_dir / "main.tex"
     with open(mock_tex_file, "w", encoding="utf-8") as f:
         f.write("\\documentclass{article}\n\\begin{document}\nHello World!\n\\end{document}")
-    
+
     return extracted_dir
 
 
 def _create_mock_html(filename: str) -> str:
     """
     Create mock HTML content.
-    
+
     Args:
         filename: Original filename
-        
+
     Returns:
         str: Mock HTML content
     """
@@ -517,15 +517,15 @@ def _create_mock_html(filename: str) -> str:
 def _create_mock_assets(output_dir: Path) -> list[Path]:
     """
     Create mock asset files.
-    
+
     Args:
         output_dir: Output directory for assets
-        
+
     Returns:
         list[Path]: List of created asset files
     """
     assets = []
-    
+
     # Create mock SVG files
     for i in range(2):
         svg_file = output_dir / f"figure_{i+1}.svg"
@@ -537,5 +537,5 @@ def _create_mock_assets(output_dir: Path) -> list[Path]:
     </text>
 </svg>""")
         assets.append(svg_file)
-    
+
     return assets

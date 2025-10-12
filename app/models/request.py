@@ -5,7 +5,7 @@ This module defines Pydantic models for API request validation.
 """
 # pylint: disable=no-self-argument
 
-from typing import Optional
+
 from pydantic import BaseModel, Field, validator
 
 
@@ -45,13 +45,13 @@ class ConversionRequest(BaseModel):
         default=True,
         description="Preserve document structure"
     )
-    custom_css: Optional[str] = Field(
+    custom_css: str | None = Field(
         default=None,
         description="Custom CSS for styling"
     )
 
     # Processing options
-    timeout: Optional[int] = Field(
+    timeout: int | None = Field(
         default=None,
         description="Conversion timeout in seconds"
     )
@@ -61,7 +61,7 @@ class ConversionRequest(BaseModel):
     )
 
     @validator("math_rendering")
-    def validate_math_rendering(cls, v: str) -> str:
+    def validate_math_rendering(self, v: str) -> str:
         """Validate math rendering option."""
         allowed = ["mathjax", "mathml", "svg"]
         if v not in allowed:
@@ -69,7 +69,7 @@ class ConversionRequest(BaseModel):
         return v
 
     @validator("figure_conversion")
-    def validate_figure_conversion(cls, v: str) -> str:
+    def validate_figure_conversion(self, v: str) -> str:
         """Validate figure conversion option."""
         allowed = ["svg", "png", "pdf"]
         if v not in allowed:
@@ -77,7 +77,7 @@ class ConversionRequest(BaseModel):
         return v
 
     @validator("output_format")
-    def validate_output_format(cls, v: str) -> str:
+    def validate_output_format(self, v: str) -> str:
         """Validate output format option."""
         allowed = ["html5", "xhtml"]
         if v not in allowed:
@@ -85,7 +85,7 @@ class ConversionRequest(BaseModel):
         return v
 
     @validator("file_size")
-    def validate_file_size(cls, v: int) -> int:
+    def validate_file_size(self, v: int) -> int:
         """Validate file size."""
         if v <= 0:
             raise ValueError("file_size must be positive")
@@ -94,14 +94,14 @@ class ConversionRequest(BaseModel):
         return v
 
     @validator("timeout")
-    def validate_timeout(cls, v: Optional[int]) -> Optional[int]:
+    def validate_timeout(self, v: int | None) -> int | None:
         """Validate timeout value."""
         if v is not None and v <= 0:
             raise ValueError("timeout must be positive")
         return v
 
     @validator("max_retries")
-    def validate_max_retries(cls, v: int) -> int:
+    def validate_max_retries(self, v: int) -> int:
         """Validate max retries value."""
         if v < 0 or v > 10:
             raise ValueError("max_retries must be between 0 and 10")
@@ -133,24 +133,24 @@ class ConversionOptions(BaseModel):
     include_metadata: bool = True
 
     # Styling options
-    custom_css: Optional[str] = None
+    custom_css: str | None = None
     theme: str = "default"
     responsive: bool = True
 
     # Processing options
-    timeout: Optional[int] = None
+    timeout: int | None = None
     max_retries: int = 3
     parallel_processing: bool = True
 
     @validator("figure_quality")
-    def validate_figure_quality(cls, v: int) -> int:
+    def validate_figure_quality(self, v: int) -> int:
         """Validate figure quality."""
         if v < 1 or v > 100:
             raise ValueError("figure_quality must be between 1 and 100")
         return v
 
     @validator("figure_dpi")
-    def validate_figure_dpi(cls, v: int) -> int:
+    def validate_figure_dpi(self, v: int) -> int:
         """Validate figure DPI."""
         if v < 72 or v > 600:
             raise ValueError("figure_dpi must be between 72 and 600")

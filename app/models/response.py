@@ -4,10 +4,11 @@ Response models for the LaTeX → HTML5 Converter API.
 This module defines Pydantic models for API response formatting.
 """
 
-from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field
 from datetime import datetime
 from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class ConversionStatus(str, Enum):
@@ -34,17 +35,17 @@ class ConversionResponse(BaseModel):
 
     # Output files
     html_file: str = Field(..., description="Main HTML output file")
-    assets: List[str] = Field(default=[], description="List of generated asset files")
+    assets: list[str] = Field(default=[], description="List of generated asset files")
 
     # Conversion metadata
-    report: Dict[str, Any] = Field(..., description="Conversion report and metrics")
+    report: dict[str, Any] = Field(..., description="Conversion report and metrics")
 
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    completed_at: Optional[datetime] = Field(default=None)
+    completed_at: datetime | None = Field(default=None)
 
     # Error information
-    error_message: Optional[str] = Field(default=None, description="Error message if conversion failed")
+    error_message: str | None = Field(default=None, description="Error message if conversion failed")
 
     class Config:
         """Pydantic configuration."""
@@ -67,10 +68,10 @@ class ConversionStatusResponse(BaseModel):
     # Timing information
     created_at: datetime = Field(..., description="Conversion start time")
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-    estimated_completion: Optional[datetime] = Field(default=None)
+    estimated_completion: datetime | None = Field(default=None)
 
     # Error information
-    error_message: Optional[str] = Field(default=None)
+    error_message: str | None = Field(default=None)
 
     class Config:
         """Pydantic configuration."""
@@ -91,9 +92,9 @@ class HealthResponse(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
     # Optional system information
-    system: Optional[Dict[str, Any]] = Field(default=None)
-    metrics: Optional[Dict[str, Any]] = Field(default=None)
-    dependencies: Optional[Dict[str, bool]] = Field(default=None)
+    system: dict[str, Any] | None = Field(default=None)
+    metrics: dict[str, Any] | None = Field(default=None)
+    dependencies: dict[str, bool] | None = Field(default=None)
 
 
 class ErrorResponse(BaseModel):
@@ -105,12 +106,12 @@ class ErrorResponse(BaseModel):
 
     error: str = Field(..., description="Error type")
     message: str = Field(..., description="Error message")
-    request_id: Optional[str] = Field(default=None, description="Request identifier")
+    request_id: str | None = Field(default=None, description="Request identifier")
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
     # Optional error details
-    details: Optional[Dict[str, Any]] = Field(default=None)
-    code: Optional[str] = Field(default=None, description="Error code")
+    details: dict[str, Any] | None = Field(default=None)
+    code: str | None = Field(default=None, description="Error code")
 
 
 class ConversionReport(BaseModel):
@@ -129,9 +130,9 @@ class ConversionReport(BaseModel):
     completeness_score: float = Field(..., description="Completeness score")
 
     # Conversion details
-    packages_used: List[str] = Field(default=[], description="LaTeX packages detected")
-    missing_macros: List[str] = Field(default=[], description="Unsupported macros")
-    warnings: List[str] = Field(default=[], description="Conversion warnings")
+    packages_used: list[str] = Field(default=[], description="LaTeX packages detected")
+    missing_macros: list[str] = Field(default=[], description="Unsupported macros")
+    warnings: list[str] = Field(default=[], description="Conversion warnings")
 
     # Performance metrics
     conversion_time: float = Field(..., description="Total conversion time in seconds")

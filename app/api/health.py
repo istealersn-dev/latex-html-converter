@@ -5,13 +5,13 @@ This module provides health check endpoints for monitoring
 and service discovery.
 """
 
-from typing import Dict
+import platform
+from datetime import datetime
+
+import psutil
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from loguru import logger
-import platform
-import psutil
-from datetime import datetime
 
 from app.config import settings
 
@@ -87,7 +87,7 @@ async def detailed_health_check() -> JSONResponse:
         raise HTTPException(status_code=503, detail="Service unhealthy")
 
 
-async def check_dependencies() -> Dict[str, bool]:
+async def check_dependencies() -> dict[str, bool]:
     """
     Check the status of external dependencies.
 
@@ -107,7 +107,7 @@ async def check_dependencies() -> Dict[str, bool]:
             [settings.TECTONIC_PATH, "--version"],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5, check=False
         )
         dependencies["tectonic"] = result.returncode == 0
     except Exception:
@@ -119,7 +119,7 @@ async def check_dependencies() -> Dict[str, bool]:
             [settings.LATEXML_PATH, "--version"],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5, check=False
         )
         dependencies["latexml"] = result.returncode == 0
     except Exception:
@@ -131,7 +131,7 @@ async def check_dependencies() -> Dict[str, bool]:
             [settings.DVISVGM_PATH, "--version"],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5, check=False
         )
         dependencies["dvisvgm"] = result.returncode == 0
     except Exception:
