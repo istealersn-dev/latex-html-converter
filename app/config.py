@@ -6,7 +6,7 @@ and configuration validation using Pydantic Settings.
 """
 
 
-from pydantic import validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -53,24 +53,27 @@ class Settings(BaseSettings):
     # Security settings
     SECRET_KEY: str = "your-secret-key-change-in-production"
 
-    @validator("ENVIRONMENT")
-    def validate_environment(self, v: str) -> str:
+    @field_validator("ENVIRONMENT")
+    @classmethod
+    def validate_environment(cls, v: str) -> str:
         """Validate environment setting."""
         allowed_envs = ["development", "staging", "production"]
         if v not in allowed_envs:
             raise ValueError(f"ENVIRONMENT must be one of {allowed_envs}")
         return v
 
-    @validator("LOG_LEVEL")
-    def validate_log_level(self, v: str) -> str:
+    @field_validator("LOG_LEVEL")
+    @classmethod
+    def validate_log_level(cls, v: str) -> str:
         """Validate log level setting."""
         allowed_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         if v.upper() not in allowed_levels:
             raise ValueError(f"LOG_LEVEL must be one of {allowed_levels}")
         return v.upper()
 
-    @validator("MAX_FILE_SIZE")
-    def validate_max_file_size(self, v: int) -> int:
+    @field_validator("MAX_FILE_SIZE")
+    @classmethod
+    def validate_max_file_size(cls, v: int) -> int:
         """Validate maximum file size."""
         if v <= 0:
             raise ValueError("MAX_FILE_SIZE must be positive")
