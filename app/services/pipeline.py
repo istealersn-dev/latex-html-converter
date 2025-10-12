@@ -62,8 +62,10 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             latexml_service: LaTeXML service instance
             html_processor: HTML post-processor instance
         """
-        self.tectonic_service = tectonic_service or TectonicService()
-        self.latexml_service = latexml_service or LaTeXMLService()
+        from app.config import settings
+        from app.configs.latexml import LaTeXMLSettings
+        self.tectonic_service = tectonic_service or TectonicService(tectonic_path=settings.TECTONIC_PATH)
+        self.latexml_service = latexml_service or LaTeXMLService(settings=LaTeXMLSettings(latexml_path=settings.LATEXML_PATH))
         self.html_processor = html_processor or HTMLPostProcessor()
 
         # Pipeline configuration

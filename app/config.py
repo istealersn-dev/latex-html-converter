@@ -42,9 +42,9 @@ class Settings(BaseSettings):
     OUTPUT_DIR: str = "outputs"
 
     # External tools settings
-    TECTONIC_PATH: str = "tectonic"
-    LATEXML_PATH: str = "latexml"
-    DVISVGM_PATH: str = "dvisvgm"
+    TECTONIC_PATH: str = "/opt/homebrew/bin/tectonic"
+    LATEXML_PATH: str = "/opt/homebrew/bin/latexml"
+    DVISVGM_PATH: str = "/opt/homebrew/bin/dvisvgm"
 
     # Conversion settings
     CONVERSION_TIMEOUT: int = 300  # 5 minutes

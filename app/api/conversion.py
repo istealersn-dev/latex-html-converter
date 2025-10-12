@@ -262,9 +262,12 @@ async def convert_latex_to_html(
             output_dir.mkdir(exist_ok=True)
 
             # Get orchestrator and start conversion
+            logger.info("Getting orchestrator...")
             orchestrator = get_orchestrator()
+            logger.info("Orchestrator obtained successfully")
 
             try:
+                logger.info(f"Starting conversion: {main_tex_file} -> {output_dir}")
                 job_id = orchestrator.start_conversion(
                     input_file=main_tex_file,
                     output_dir=output_dir,
@@ -311,8 +314,8 @@ async def convert_latex_to_html(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"Conversion failed: {exc}")
-        raise HTTPException(status_code=500, detail="Conversion failed")
+        logger.error(f"Conversion failed: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Conversion failed: {str(exc)}")
 
 
 @router.get("/convert/{conversion_id}", response_model=ConversionStatusResponse)
