@@ -1,0 +1,458 @@
+"""
+Conversion orchestrator service for the LaTeX → HTML5 Converter.
+
+This service manages the overall conversion workflow, job scheduling,
+resource management, and coordination between different services.
+"""
+
+import logging
+import threading
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+from loguru import logger
+
+from app.config import settings
+from app.models.conversion import (
+    ConversionJob,
+    ConversionOptions,
+    ConversionProgress,
+    ConversionResult,
+    ConversionStatus,
+)
+from app.services.pipeline import ConversionPipeline
+
+logger = logging.getLogger(__name__)
+
+
+class OrchestrationError(Exception):
+    """Base exception for orchestration errors."""
+
+
+class JobNotFoundError(OrchestrationError):
+    """Raised when a job is not found."""
+
+
+class ResourceLimitError(OrchestrationError):
+    """Raised when resource limits are exceeded."""
+
+
+class ConversionOrchestrator:
+    """Main conversion orchestrator service."""
+
+    def __init__(
+        self,
+        max_concurrent_jobs: int = 5,
+        max_job_duration: int = 600,
+        cleanup_interval: int = 3600
+    ):
+        """
+        Initialize the conversion orchestrator.
+
+        Args:
+            max_concurrent_jobs: Maximum number of concurrent jobs
+            max_job_duration: Maximum job duration in seconds
+            cleanup_interval: Cleanup interval in seconds
+        """
+        self.max_concurrent_jobs = max_concurrent_jobs
+        self.max_job_duration = max_job_duration
+        self.cleanup_interval = cleanup_interval
+
+        # Job management
+        self._jobs: dict[str, ConversionJob] = {}
+        self._job_lock = threading.RLock()
+        self._active_job_ids: set[str] = set()
+
+        # Pipeline
+        self._pipeline = ConversionPipeline()
+
+        # Background tasks
+        self._cleanup_thread: threading.Thread | None = None
+        self._monitor_thread: threading.Thread | None = None
+        self._shutdown_event = threading.Event()
+
+        # Statistics
+        self._stats = {
+            "total_jobs": 0,
+            "completed_jobs": 0,
+            "failed_jobs": 0,
+            "cancelled_jobs": 0,
+            "total_processing_time": 0.0
+        }
+
+        # Start background tasks
+        self._start_background_tasks()
+
+        logger.info("Conversion orchestrator initialized")
+
+    def start_conversion(
+        self,
+        input_file: Path,
+        output_dir: Path,
+        options: ConversionOptions | None = None,
+        job_id: str | None = None
+    ) -> str:
+        """
+        Start a new conversion job.
+
+        Args:
+            input_file: Path to input LaTeX file
+            output_dir: Path to output directory
+            options: Conversion options
+            job_id: Optional job ID
+
+        Returns:
+            str: Job ID
+
+        Raises:
+            ResourceLimitError: If resource limits are exceeded
+            OrchestrationError: If job creation fails
+        """
+        with self._job_lock:
+            # Check resource limits
+            if len(self._active_job_ids) >= self.max_concurrent_jobs:
+                raise ResourceLimitError(
+                    f"Maximum concurrent jobs ({self.max_concurrent_jobs}) exceeded"
+                )
+
+            try:
+                # Create job
+                job = self._pipeline.create_conversion_job(
+                    input_file=input_file,
+                    output_dir=output_dir,
+                    options=options,
+                    job_id=job_id or str(uuid4())
+                )
+
+                # Store job
+                self._jobs[job.job_id] = job
+                self._active_job_ids.add(job.job_id)
+                self._stats["total_jobs"] += 1
+
+                # Start conversion in background
+                self._start_conversion_task(job)
+
+                logger.info(f"Started conversion job: {job.job_id}")
+                return job.job_id
+
+            except Exception as exc:
+                logger.exception(f"Failed to start conversion: {exc}")
+                raise OrchestrationError(f"Failed to start conversion: {exc}")
+
+    def get_job_status(self, job_id: str) -> ConversionStatus | None:
+        """
+        Get the status of a conversion job.
+
+        Args:
+            job_id: Job identifier
+
+        Returns:
+            ConversionStatus: Job status or None if not found
+        """
+        with self._job_lock:
+            job = self._jobs.get(job_id)
+            return job.status if job else None
+
+    def get_job_progress(self, job_id: str) -> ConversionProgress | None:
+        """
+        Get progress information for a conversion job.
+
+        Args:
+            job_id: Job identifier
+
+        Returns:
+            ConversionProgress: Progress information or None if not found
+        """
+        with self._job_lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                return None
+
+            return self._pipeline.get_job_progress(job_id)
+
+    def get_job_result(self, job_id: str) -> ConversionResult | None:
+        """
+        Get the result of a completed conversion job.
+
+        Args:
+            job_id: Job identifier
+
+        Returns:
+            ConversionResult: Conversion result or None if not found/not completed
+        """
+        with self._job_lock:
+            job = self._jobs.get(job_id)
+            if not job or job.status not in [ConversionStatus.COMPLETED, ConversionStatus.FAILED]:
+                return None
+
+            return self._pipeline._create_conversion_result(job)
+
+    def cancel_job(self, job_id: str) -> bool:
+        """
+        Cancel a running conversion job.
+
+        Args:
+            job_id: Job identifier
+
+        Returns:
+            bool: True if job was cancelled, False if not found or not cancellable
+        """
+        with self._job_lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                return False
+
+            if job.status not in [ConversionStatus.PENDING, ConversionStatus.RUNNING]:
+                return False
+
+            # Cancel the job
+            success = self._pipeline.cancel_job(job_id)
+            if success:
+                self._stats["cancelled_jobs"] += 1
+                self._active_job_ids.discard(job_id)
+                logger.info(f"Cancelled job: {job_id}")
+
+            return success
+
+    def list_jobs(
+        self,
+        status_filter: ConversionStatus | None = None,
+        limit: int = 100
+    ) -> list[ConversionJob]:
+        """
+        List conversion jobs with optional filtering.
+
+        Args:
+            status_filter: Optional status filter
+            limit: Maximum number of jobs to return
+
+        Returns:
+            List[ConversionJob]: List of jobs
+        """
+        with self._job_lock:
+            jobs = list(self._jobs.values())
+
+            if status_filter:
+                jobs = [job for job in jobs if job.status == status_filter]
+
+            # Sort by creation time (newest first)
+            jobs.sort(key=lambda x: x.created_at, reverse=True)
+
+            return jobs[:limit]
+
+    def get_statistics(self) -> dict[str, Any]:
+        """
+        Get orchestrator statistics.
+
+        Returns:
+            Dict[str, Any]: Statistics dictionary
+        """
+        with self._job_lock:
+            active_jobs = len(self._active_job_ids)
+            total_jobs = len(self._jobs)
+
+            return {
+                **self._stats,
+                "active_jobs": active_jobs,
+                "total_jobs_stored": total_jobs,
+                "max_concurrent_jobs": self.max_concurrent_jobs,
+                "max_job_duration": self.max_job_duration,
+                "uptime_seconds": time.time() - getattr(self, '_start_time', time.time())
+            }
+
+    def cleanup_completed_jobs(self, older_than_hours: int = 24) -> int:
+        """
+        Clean up completed jobs older than specified hours.
+
+        Args:
+            older_than_hours: Clean up jobs older than this many hours
+
+        Returns:
+            int: Number of jobs cleaned up
+        """
+        cutoff_time = datetime.utcnow() - timedelta(hours=older_than_hours)
+        cleaned_count = 0
+
+        with self._job_lock:
+            jobs_to_remove = []
+
+            for job_id, job in self._jobs.items():
+                if (job.status in [ConversionStatus.COMPLETED, ConversionStatus.FAILED, ConversionStatus.CANCELLED]
+                    and job.completed_at
+                    and job.completed_at < cutoff_time):
+                    jobs_to_remove.append(job_id)
+
+            for job_id in jobs_to_remove:
+                job = self._jobs.pop(job_id, None)
+                if job:
+                    # Clean up job resources
+                    self._pipeline.cleanup_job(job_id)
+                    cleaned_count += 1
+                    logger.info(f"Cleaned up old job: {job_id}")
+
+        logger.info(f"Cleaned up {cleaned_count} old jobs")
+        return cleaned_count
+
+    def shutdown(self) -> None:
+        """Shutdown the orchestrator and clean up resources."""
+        logger.info("Shutting down conversion orchestrator...")
+
+        # Signal shutdown
+        self._shutdown_event.set()
+
+        # Wait for background threads
+        if self._cleanup_thread and self._cleanup_thread.is_alive():
+            self._cleanup_thread.join(timeout=5.0)
+
+        if self._monitor_thread and self._monitor_thread.is_alive():
+            self._monitor_thread.join(timeout=5.0)
+
+        # Cancel all active jobs
+        with self._job_lock:
+            for job_id in list(self._active_job_ids):
+                self.cancel_job(job_id)
+
+        logger.info("Conversion orchestrator shutdown complete")
+
+    def _start_conversion_task(self, job: ConversionJob) -> None:
+        """Start a conversion task in a background thread."""
+        def _run_conversion():
+            try:
+                logger.info(f"Starting conversion task for job: {job.job_id}")
+
+                # Execute pipeline
+                self._pipeline.execute_pipeline(job)
+
+                # Update statistics
+                with self._job_lock:
+                    if job.status == ConversionStatus.COMPLETED:
+                        self._stats["completed_jobs"] += 1
+                    elif job.status == ConversionStatus.FAILED:
+                        self._stats["failed_jobs"] += 1
+
+                    if job.total_duration_seconds:
+                        self._stats["total_processing_time"] += job.total_duration_seconds
+
+                    # Remove from active jobs
+                    self._active_job_ids.discard(job.job_id)
+
+                logger.info(f"Conversion task completed for job: {job.job_id}")
+
+            except Exception as exc:
+                logger.exception(f"Conversion task failed for job {job.job_id}: {exc}")
+
+                with self._job_lock:
+                    job.status = ConversionStatus.FAILED
+                    job.completed_at = datetime.utcnow()
+                    job.error_message = str(exc)
+                    self._stats["failed_jobs"] += 1
+                    self._active_job_ids.discard(job.job_id)
+
+        # Start background thread
+        thread = threading.Thread(
+            target=_run_conversion,
+            name=f"conversion-{job.job_id}",
+            daemon=True
+        )
+        thread.start()
+
+    def _start_background_tasks(self) -> None:
+        """Start background monitoring and cleanup tasks."""
+        self._start_time = time.time()
+
+        # Start cleanup thread
+        self._cleanup_thread = threading.Thread(
+            target=self._cleanup_loop,
+            name="orchestrator-cleanup",
+            daemon=True
+        )
+        self._cleanup_thread.start()
+
+        # Start monitor thread
+        self._monitor_thread = threading.Thread(
+            target=self._monitor_loop,
+            name="orchestrator-monitor",
+            daemon=True
+        )
+        self._monitor_thread.start()
+
+        logger.info("Started background tasks")
+
+    def _cleanup_loop(self) -> None:
+        """Background cleanup loop."""
+        while not self._shutdown_event.is_set():
+            try:
+                # Clean up old jobs
+                self.cleanup_completed_jobs(older_than_hours=1)
+
+                # Wait for next cleanup cycle
+                self._shutdown_event.wait(self.cleanup_interval)
+
+            except Exception as exc:
+                logger.exception(f"Cleanup loop error: {exc}")
+                time.sleep(60)  # Wait before retrying
+
+    def _monitor_loop(self) -> None:
+        """Background monitoring loop."""
+        while not self._shutdown_event.is_set():
+            try:
+                # Check for stuck jobs
+                self._check_stuck_jobs()
+
+                # Wait for next monitoring cycle
+                self._shutdown_event.wait(30)
+
+            except Exception as exc:
+                logger.exception(f"Monitor loop error: {exc}")
+                time.sleep(30)  # Wait before retrying
+
+    def _check_stuck_jobs(self) -> None:
+        """Check for and handle stuck jobs."""
+        current_time = datetime.utcnow()
+        stuck_jobs = []
+
+        with self._job_lock:
+            for job_id, job in self._jobs.items():
+                if (job.status == ConversionStatus.RUNNING
+                    and job.started_at
+                    and (current_time - job.started_at).total_seconds() > self.max_job_duration):
+                    stuck_jobs.append(job_id)
+
+        for job_id in stuck_jobs:
+            logger.warning(f"Job {job_id} appears to be stuck, cancelling")
+            self.cancel_job(job_id)
+
+
+# Global orchestrator instance
+_orchestrator: ConversionOrchestrator | None = None
+
+
+def get_orchestrator() -> ConversionOrchestrator:
+    """
+    Get the global orchestrator instance.
+
+    Returns:
+        ConversionOrchestrator: Global orchestrator instance
+    """
+    global _orchestrator
+
+    if _orchestrator is None:
+        _orchestrator = ConversionOrchestrator(
+            max_concurrent_jobs=settings.MAX_CONCURRENT_CONVERSIONS,
+            max_job_duration=settings.CONVERSION_TIMEOUT,
+            cleanup_interval=3600  # 1 hour
+        )
+
+    return _orchestrator
+
+
+def shutdown_orchestrator() -> None:
+    """Shutdown the global orchestrator."""
+    global _orchestrator
+
+    if _orchestrator:
+        _orchestrator.shutdown()
+        _orchestrator = None

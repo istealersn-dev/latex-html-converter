@@ -28,6 +28,22 @@ from .html_post import (
     HTMLCleaningError,
 )
 
+from .orchestrator import (
+    ConversionOrchestrator,
+    OrchestrationError,
+    JobNotFoundError,
+    ResourceLimitError,
+    get_orchestrator,
+    shutdown_orchestrator,
+)
+
+from .pipeline import (
+    ConversionPipeline,
+    ConversionPipelineError,
+    PipelineTimeoutError,
+    PipelineResourceError,
+)
+
 __all__ = [
     # Tectonic services
     "TectonicService",
@@ -47,4 +63,16 @@ __all__ = [
     "HTMLPostProcessingError",
     "HTMLValidationError",
     "HTMLCleaningError",
+    # Orchestrator services
+    "ConversionOrchestrator",
+    "OrchestrationError",
+    "JobNotFoundError",
+    "ResourceLimitError",
+    "get_orchestrator",
+    "shutdown_orchestrator",
+    # Pipeline services
+    "ConversionPipeline",
+    "ConversionPipelineError",
+    "PipelineTimeoutError",
+    "PipelineResourceError",
 ]
