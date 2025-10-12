@@ -651,9 +651,10 @@ class HTMLPostProcessor:
                 )
                 
                 if conversion_result.get("success"):
-                    # Replace TikZ element with SVG
-                    svg_file = assets_dir / f"tikz_diagram_{i}.svg"
-                    if svg_file.exists():
+                    # Get the actual output file from conversion result
+                    output_file = conversion_result.get("output_file")
+                    if output_file and Path(output_file).exists():
+                        svg_file = Path(output_file)
                         self._replace_element_with_svg(tikz['element'], svg_file)
                         results.setdefault("converted_assets", []).append({
                             "type": "tikz",
@@ -661,6 +662,17 @@ class HTMLPostProcessor:
                             "svg_file": str(svg_file),
                             "success": True
                         })
+                    else:
+                        # Fallback: try the expected filename pattern with _wrapper suffix
+                        svg_file = assets_dir / f"tikz_diagram_{i}_wrapper.svg"
+                        if svg_file.exists():
+                            self._replace_element_with_svg(tikz['element'], svg_file)
+                            results.setdefault("converted_assets", []).append({
+                                "type": "tikz",
+                                "original": tikz['id'],
+                                "svg_file": str(svg_file),
+                                "success": True
+                            })
                 else:
                     results.setdefault("failed_assets", []).append({
                         "type": "tikz",
