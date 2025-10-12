@@ -20,6 +20,9 @@ except ImportError:
     # Fallback for systems without lxml
     Cleaner = None
 
+from app.services.assets import AssetConversionService
+from app.services.asset_validator import AssetValidator
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,14 +52,23 @@ class HTMLCleaningError(HTMLPostProcessingError):
 class HTMLPostProcessor:
     """Service for post-processing LaTeXML HTML output."""
 
-    def __init__(self, base_url: str | None = None):
+    def __init__(
+        self, 
+        base_url: str | None = None,
+        asset_conversion_service: AssetConversionService | None = None,
+        asset_validator: AssetValidator | None = None
+    ):
         """
         Initialize HTML post-processor.
         
         Args:
             base_url: Base URL for resolving relative links
+            asset_conversion_service: Service for converting assets to SVG
+            asset_validator: Service for validating converted assets
         """
         self.base_url = base_url
+        self.asset_conversion_service = asset_conversion_service or AssetConversionService()
+        self.asset_validator = asset_validator or AssetValidator()
         self._setup_cleaner()
 
     def _setup_cleaner(self) -> None:
@@ -126,10 +138,13 @@ class HTMLPostProcessor:
             # Step 2: Validate HTML structure
             self._validate_html_structure(cleaned_soup, processing_results)
 
-            # Step 3: Enhance HTML
-            enhanced_soup = self._enhance_html(cleaned_soup, processing_results)
+            # Step 3: Convert assets to SVG
+            asset_converted_soup = self._convert_assets_to_svg(cleaned_soup, html_file.parent, processing_results)
 
-            # Step 4: Optimize HTML
+            # Step 4: Enhance HTML
+            enhanced_soup = self._enhance_html(asset_converted_soup, processing_results)
+
+            # Step 5: Optimize HTML
             optimized_soup = self._optimize_html(enhanced_soup, processing_results)
 
             # Generate output
@@ -424,6 +439,225 @@ class HTMLPostProcessor:
             # Add loading="lazy" for performance
             if not img.get('loading'):
                 img['loading'] = 'lazy'
+
+    def _convert_assets_to_svg(self, soup: BeautifulSoup, html_dir: Path, results: dict[str, Any]) -> BeautifulSoup:
+        """Convert assets (TikZ, PDF) to SVG format."""
+        try:
+            # Create assets directory
+            assets_dir = html_dir / "assets"
+            assets_dir.mkdir(exist_ok=True)
+            
+            # Find and convert TikZ diagrams
+            tikz_diagrams = self._find_tikz_diagrams(soup)
+            if tikz_diagrams:
+                logger.info("Found %d TikZ diagrams to convert", len(tikz_diagrams))
+                self._convert_tikz_diagrams(tikz_diagrams, assets_dir, results)
+            
+            # Find and convert PDF figures
+            pdf_figures = self._find_pdf_figures(soup)
+            if pdf_figures:
+                logger.info("Found %d PDF figures to convert", len(pdf_figures))
+                self._convert_pdf_figures(pdf_figures, assets_dir, results)
+            
+            # Find and convert image assets
+            image_assets = self._find_image_assets(soup)
+            if image_assets:
+                logger.info("Found %d image assets to convert", len(image_assets))
+                self._convert_image_assets(image_assets, assets_dir, results)
+            
+            results["steps_completed"].append("asset_conversion")
+            return soup
+            
+        except Exception as exc:
+            error_msg = f"Asset conversion failed: {exc}"
+            results["errors"].append(error_msg)
+            logger.error(error_msg)
+            return soup
+
+    def _find_tikz_diagrams(self, soup: BeautifulSoup) -> list[dict[str, Any]]:
+        """Find TikZ diagrams in the HTML."""
+        tikz_diagrams = []
+        
+        # Look for tikzpicture environments
+        for tikz in soup.find_all('div', class_='tikzpicture'):
+            tikz_diagrams.append({
+                'element': tikz,
+                'type': 'tikz',
+                'content': tikz.get_text(),
+                'id': tikz.get('id', ''),
+                'class': tikz.get('class', [])
+            })
+        
+        # Look for LaTeX tikz environments
+        for tikz in soup.find_all('div', attrs={'data-latexml': True}):
+            if 'tikz' in str(tikz.get('class', [])).lower():
+                tikz_diagrams.append({
+                    'element': tikz,
+                    'type': 'tikz',
+                    'content': tikz.get_text(),
+                    'id': tikz.get('id', ''),
+                    'class': tikz.get('class', [])
+                })
+        
+        return tikz_diagrams
+
+    def _find_pdf_figures(self, soup: BeautifulSoup) -> list[dict[str, Any]]:
+        """Find PDF figures in the HTML."""
+        pdf_figures = []
+        
+        # Look for PDF links
+        for link in soup.find_all('a', href=True):
+            href = link.get('href', '')
+            if href.lower().endswith('.pdf'):
+                pdf_figures.append({
+                    'element': link,
+                    'type': 'pdf',
+                    'href': href,
+                    'id': link.get('id', ''),
+                    'class': link.get('class', [])
+                })
+        
+        # Look for embedded PDF objects
+        for obj in soup.find_all('object', attrs={'data': True}):
+            data = obj.get('data', '')
+            if data.lower().endswith('.pdf'):
+                pdf_figures.append({
+                    'element': obj,
+                    'type': 'pdf',
+                    'href': data,
+                    'id': obj.get('id', ''),
+                    'class': obj.get('class', [])
+                })
+        
+        return pdf_figures
+
+    def _find_image_assets(self, soup: BeautifulSoup) -> list[dict[str, Any]]:
+        """Find image assets that could be converted to SVG."""
+        image_assets = []
+        
+        # Look for images
+        for img in soup.find_all('img', src=True):
+            src = img.get('src', '')
+            # Only convert certain image types
+            if src.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+                image_assets.append({
+                    'element': img,
+                    'type': 'image',
+                    'src': src,
+                    'id': img.get('id', ''),
+                    'class': img.get('class', [])
+                })
+        
+        return image_assets
+
+    def _convert_tikz_diagrams(self, tikz_diagrams: list[dict[str, Any]], assets_dir: Path, results: dict[str, Any]) -> None:
+        """Convert TikZ diagrams to SVG."""
+        try:
+            for i, tikz in enumerate(tikz_diagrams):
+                # Create temporary TikZ file
+                tikz_file = assets_dir / f"tikz_diagram_{i}.tex"
+                with open(tikz_file, 'w', encoding='utf-8') as f:
+                    f.write(f"\\documentclass{{standalone}}\n\\usepackage{{tikz}}\n\\begin{{document}}\n{tikz['content']}\n\\end{{document}}")
+                
+                # Convert to SVG
+                conversion_result = self.asset_conversion_service.convert_assets(
+                    assets_dir,
+                    assets_dir,
+                    asset_types=["tikz"],
+                    options={"timeout": 300}
+                )
+                
+                if conversion_result.get("success"):
+                    # Replace TikZ element with SVG
+                    svg_file = assets_dir / f"tikz_diagram_{i}.svg"
+                    if svg_file.exists():
+                        self._replace_element_with_svg(tikz['element'], svg_file)
+                        results.setdefault("converted_assets", []).append({
+                            "type": "tikz",
+                            "original": tikz['id'],
+                            "svg_file": str(svg_file),
+                            "success": True
+                        })
+                else:
+                    results.setdefault("failed_assets", []).append({
+                        "type": "tikz",
+                        "original": tikz['id'],
+                        "error": "Conversion failed"
+                    })
+                    
+        except Exception as exc:
+            logger.error("TikZ conversion failed: %s", exc)
+            results.setdefault("failed_assets", []).append({
+                "type": "tikz",
+                "error": str(exc)
+            })
+
+    def _convert_pdf_figures(self, pdf_figures: list[dict[str, Any]], assets_dir: Path, results: dict[str, Any]) -> None:
+        """Convert PDF figures to SVG."""
+        try:
+            for i, pdf in enumerate(pdf_figures):
+                # Download or copy PDF file
+                pdf_file = assets_dir / f"pdf_figure_{i}.pdf"
+                # TODO: Implement PDF file handling
+                
+                # Convert to SVG
+                conversion_result = self.asset_conversion_service.convert_assets(
+                    assets_dir,
+                    assets_dir,
+                    asset_types=["pdf"],
+                    options={"timeout": 300}
+                )
+                
+                if conversion_result.get("success"):
+                    # Replace PDF element with SVG
+                    svg_file = assets_dir / f"pdf_figure_{i}.svg"
+                    if svg_file.exists():
+                        self._replace_element_with_svg(pdf['element'], svg_file)
+                        results.setdefault("converted_assets", []).append({
+                            "type": "pdf",
+                            "original": pdf['id'],
+                            "svg_file": str(svg_file),
+                            "success": True
+                        })
+                else:
+                    results.setdefault("failed_assets", []).append({
+                        "type": "pdf",
+                        "original": pdf['id'],
+                        "error": "Conversion failed"
+                    })
+                    
+        except Exception as exc:
+            logger.error("PDF conversion failed: %s", exc)
+            results.setdefault("failed_assets", []).append({
+                "type": "pdf",
+                "error": str(exc)
+            })
+
+    def _convert_image_assets(self, image_assets: list[dict[str, Any]], assets_dir: Path, results: dict[str, Any]) -> None:
+        """Convert image assets to SVG (placeholder for future implementation)."""
+        # TODO: Implement image to SVG conversion
+        logger.info("Image to SVG conversion not yet implemented for %d assets", len(image_assets))
+
+    def _replace_element_with_svg(self, element, svg_file: Path) -> None:
+        """Replace an HTML element with an SVG element."""
+        try:
+            # Read SVG content
+            with open(svg_file, 'r', encoding='utf-8') as f:
+                svg_content = f.read()
+            
+            # Create new SVG element
+            new_svg = BeautifulSoup(svg_content, 'html.parser').find('svg')
+            if new_svg:
+                # Preserve original attributes
+                for attr in ['id', 'class', 'style']:
+                    if element.get(attr):
+                        new_svg[attr] = element.get(attr)
+                
+                # Replace the element
+                element.replace_with(new_svg)
+                
+        except Exception as exc:
+            logger.error("Failed to replace element with SVG: %s", exc)
 
     def _remove_unnecessary_attributes(self, soup: BeautifulSoup) -> None:
         """Remove unnecessary attributes while preserving namespace declarations."""
