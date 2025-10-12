@@ -107,11 +107,11 @@ def _validate_command_safety(cmd: list[str]) -> None:
         'rm -rf', 'rmdir', 'del', 'fdisk',
         'mkfs', 'dd', 'shutdown', 'reboot'
     ]
-    
+
     # Whitelist legitimate LaTeX flags that contain "format"
     latex_flags = ['--format=', '-f ', '--format']
     cmd_str = ' '.join(cmd)
-    
+
     # Check if any dangerous pattern is present but not as a LaTeX flag
     for pattern in dangerous_patterns:
         if pattern in cmd_str.lower():
@@ -119,7 +119,7 @@ def _validate_command_safety(cmd: list[str]) -> None:
             is_latex_flag = any(flag in cmd_str for flag in latex_flags)
             if not is_latex_flag:
                 raise ValueError(f"Unsafe command pattern detected: {pattern}")
-    
+
     # Additional check for dangerous commands (but not flags)
     dangerous_commands = ['halt', 'kill', 'pkill']
     for cmd_part in cmd:
@@ -131,11 +131,11 @@ def _validate_command_safety(cmd: list[str]) -> None:
     if any(char in cmd_str for char in dangerous_chars):
         # Allow some safe characters but log warning
         logger.warning(f"Command contains potentially unsafe characters: {cmd_str}")
-    
+
     # Additional security checks
     if any(word in cmd_str for word in ['sudo', 'su', 'chmod', 'chown', 'passwd']):
         raise ValueError(f"Potentially dangerous command detected: {cmd_str}")
-    
+
     # Check for path traversal attempts
     if '..' in cmd_str or '/etc/' in cmd_str or '/sys/' in cmd_str:
         raise ValueError(f"Path traversal or system directory access detected: {cmd_str}")

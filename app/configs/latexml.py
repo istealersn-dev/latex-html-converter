@@ -6,7 +6,6 @@ including default settings, validation, and environment-specific configurations.
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings
@@ -14,30 +13,30 @@ from pydantic_settings import BaseSettings
 
 class LaTeXMLSettings(BaseSettings):
     """LaTeXML configuration settings."""
-    
+
     # LaTeXML executable path
     latexml_path: str = Field(default="latexml", description="Path to LaTeXML executable")
-    
+
     # Output format settings
     output_format: str = Field(default="html", description="Output format (html, xml)")
     include_mathml: bool = Field(default=True, description="Include MathML in output")
     include_css: bool = Field(default=True, description="Include CSS styling")
     include_javascript: bool = Field(default=True, description="Include JavaScript")
-    
+
     # Processing options
     strict_mode: bool = Field(default=False, description="Enable strict error handling")
     verbose_output: bool = Field(default=False, description="Enable verbose output")
     include_comments: bool = Field(default=True, description="Include comments in output")
-    
+
     # Path settings
-    temp_dir: Optional[Path] = Field(default=None, description="Temporary directory for processing")
-    output_dir: Optional[Path] = Field(default=None, description="Output directory for results")
-    
+    temp_dir: Path | None = Field(default=None, description="Temporary directory for processing")
+    output_dir: Path | None = Field(default=None, description="Output directory for results")
+
     # Timeout settings
     conversion_timeout: int = Field(default=300, description="Conversion timeout in seconds")
-    
+
     # Security settings
-    allowed_extensions: List[str] = Field(
+    allowed_extensions: list[str] = Field(
         default=[".tex", ".latex", ".ltx"],
         description="Allowed input file extensions"
     )
@@ -45,21 +44,21 @@ class LaTeXMLSettings(BaseSettings):
         default=50 * 1024 * 1024,  # 50MB
         description="Maximum input file size in bytes"
     )
-    
+
     # LaTeXML-specific options
-    preload_modules: List[str] = Field(
+    preload_modules: list[str] = Field(
         default=["amsmath", "amssymb", "graphicx"],
         description="LaTeXML modules to preload"
     )
-    preamble_file: Optional[Path] = Field(
+    preamble_file: Path | None = Field(
         default=None,
         description="Optional preamble file to prepend"
     )
-    postamble_file: Optional[Path] = Field(
+    postamble_file: Path | None = Field(
         default=None,
         description="Optional postamble file to append"
     )
-    
+
     class Config:
         env_prefix = "LATEXML_"
         case_sensitive = False
@@ -95,14 +94,14 @@ class LaTeXMLSettings(BaseSettings):
 
     @field_validator("allowed_extensions")
     @classmethod
-    def validate_extensions(cls, v: List[str]) -> List[str]:
+    def validate_extensions(cls, v: list[str]) -> list[str]:
         """Validate allowed extensions."""
         if not v:
             raise ValueError("At least one extension must be allowed")
         # Ensure extensions start with dot
         return [ext if ext.startswith('.') else f'.{ext}' for ext in v]
 
-    def get_latexml_command(self, input_file: Path, output_file: Path) -> List[str]:
+    def get_latexml_command(self, input_file: Path, output_file: Path) -> list[str]:
         """
         Generate LaTeXML command with current settings.
         
@@ -114,44 +113,44 @@ class LaTeXMLSettings(BaseSettings):
             List of command arguments
         """
         cmd = [self.latexml_path]
-        
+
         # Output settings
         cmd.extend(["--destination", str(output_file)])
-        
+
         if self.output_format == "xml":
             cmd.append("--xml")
         elif self.output_format == "tex":
             cmd.append("--tex")
         elif self.output_format == "box":
             cmd.append("--box")
-        
+
         # Processing options
         if self.strict_mode:
             cmd.append("--strict")
-        
+
         if self.verbose_output:
             cmd.append("--verbose")
-        
+
         if not self.include_comments:
             cmd.append("--nocomments")
-        
+
         # Preload modules
         for module in self.preload_modules:
             cmd.extend(["--preload", module])
-        
+
         # Preamble and postamble
         if self.preamble_file and hasattr(self.preamble_file, 'exists') and self.preamble_file.exists():
             cmd.extend(["--preamble", str(self.preamble_file)])
-        
+
         if self.postamble_file and hasattr(self.postamble_file, 'exists') and self.postamble_file.exists():
             cmd.extend(["--postamble", str(self.postamble_file)])
-        
+
         # Input file (must be last)
         cmd.append(str(input_file))
-        
+
         return cmd
 
-    def get_environment_vars(self) -> Dict[str, str]:
+    def get_environment_vars(self) -> dict[str, str]:
         """
         Get environment variables for LaTeXML execution.
         
@@ -162,35 +161,35 @@ class LaTeXMLSettings(BaseSettings):
             "LATEXML_STRICT": str(self.strict_mode).lower(),
             "LATEXML_VERBOSE": str(self.verbose_output).lower(),
         }
-        
+
         if self.temp_dir:
             env["TMPDIR"] = str(self.temp_dir)
-        
+
         return env
 
 
 class LaTeXMLConversionOptions(BaseModel):
     """Options for LaTeXML conversion."""
-    
+
     output_format: str = Field(default="html", description="Output format")
     include_mathml: bool = Field(default=True, description="Include MathML")
     include_css: bool = Field(default=True, description="Include CSS")
     include_javascript: bool = Field(default=True, description="Include JavaScript")
     strict_mode: bool = Field(default=False, description="Strict error handling")
     verbose: bool = Field(default=False, description="Verbose output")
-    preload_modules: List[str] = Field(
+    preload_modules: list[str] = Field(
         default_factory=lambda: ["amsmath", "amssymb", "graphicx"],
         description="Modules to preload"
     )
-    custom_preamble: Optional[str] = Field(
+    custom_preamble: str | None = Field(
         default=None,
         description="Custom preamble content"
     )
-    custom_postamble: Optional[str] = Field(
+    custom_postamble: str | None = Field(
         default=None,
         description="Custom postamble content"
     )
-    
+
     @field_validator("output_format")
     @classmethod
     def validate_output_format(cls, v: str) -> str:

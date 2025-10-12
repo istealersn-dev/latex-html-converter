@@ -11,7 +11,7 @@ import tempfile
 import threading
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -20,8 +20,10 @@ from fastapi.responses import FileResponse
 from loguru import logger
 
 from app.config import settings
-from app.models.request import ConversionOptions
+from app.models.conversion import ConversionOptions
+from app.models.conversion import ConversionStatus as ConversionStatusEnum
 from app.models.response import ConversionResponse, ConversionStatus, ConversionStatusResponse
+from app.services.orchestrator import OrchestrationError, ResourceLimitError, get_orchestrator
 
 router = APIRouter()
 
@@ -182,7 +184,7 @@ async def convert_latex_to_html(
     options: str | None = Form(None)
 ) -> ConversionResponse:
     """
-    Convert LaTeX project to HTML5.
+    Convert LaTeX project to HTML5 using the conversion orchestrator.
 
     Args:
         background_tasks: FastAPI background tasks for async processing
@@ -192,8 +194,6 @@ async def convert_latex_to_html(
     Returns:
         ConversionResponse: Conversion result with HTML and assets
     """
-    conversion_id = str(uuid.uuid4())
-
     try:
         # Validate file
         if not file.filename:
@@ -225,12 +225,19 @@ async def convert_latex_to_html(
             )
 
         # Parse conversion options
-        conversion_options = _parse_conversion_options(options)
+        request_options = _parse_conversion_options(options)
 
-        logger.info(f"Starting conversion {conversion_id} for file: {file.filename}")
+        # Convert to orchestrator options
+        conversion_options = None
+        if request_options:
+            conversion_options = ConversionOptions(
+                tectonic_options=request_options.model_dump(),
+                latexml_options=request_options.model_dump(),
+                post_processing_options=request_options.model_dump()
+            )
 
         # Create temporary directory for processing
-        temp_dir = Path(tempfile.mkdtemp(prefix=f"conversion_{conversion_id}_"))
+        temp_dir = Path(tempfile.mkdtemp(prefix=f"conversion_{uuid.uuid4()}_"))
 
         try:
             # Save uploaded file
@@ -242,49 +249,59 @@ async def convert_latex_to_html(
             extracted_dir = _extract_archive(input_file, temp_dir)
             logger.info(f"Extracted archive to: {extracted_dir}")
 
-            # TODO: Implement actual conversion logic
-            # For now, create a mock response
+            # Find main LaTeX file
+            main_tex_file = _find_main_tex_file(extracted_dir)
+            if not main_tex_file:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No main LaTeX file found in archive"
+                )
+
+            # Create output directory
             output_dir = temp_dir / "output"
             output_dir.mkdir(exist_ok=True)
 
-            # Create mock HTML file
-            html_file = output_dir / "index.html"
-            with open(html_file, "w", encoding="utf-8") as f:
-                f.write(_create_mock_html(file.filename))
+            # Get orchestrator and start conversion
+            orchestrator = get_orchestrator()
 
-            # Create mock assets
-            assets = _create_mock_assets(output_dir)
+            try:
+                job_id = orchestrator.start_conversion(
+                    input_file=main_tex_file,
+                    output_dir=output_dir,
+                    options=conversion_options
+                )
 
-            # Store conversion metadata for tracking
-            _safe_set_conversion(conversion_id, {
-                "temp_dir": str(temp_dir),
-                "html_file": str(html_file),
-                "assets": [str(asset) for asset in assets],
-                "created_at": datetime.utcnow(),
-                "cleanup_scheduled": False
-            })
+                logger.info(f"Started conversion job: {job_id}")
 
-            # Schedule delayed cleanup (e.g., 1 hour from now)
-            cleanup_time = datetime.utcnow() + timedelta(hours=1)
-            background_tasks.add_task(_schedule_delayed_cleanup, conversion_id, cleanup_time)
+                # For now, return a pending response
+                # In a real implementation, this would be handled asynchronously
+                response = ConversionResponse(
+                    conversion_id=job_id,
+                    status=ConversionStatus.PENDING,
+                    html_file="",  # Will be populated when conversion completes
+                    assets=[],     # Will be populated when conversion completes
+                    report={
+                        "score": 0.0,
+                        "missing_macros": [],
+                        "packages_used": [],
+                        "conversion_time": 0.0,
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "options": conversion_options.model_dump() if conversion_options else {}
+                    }
+                )
 
-            response = ConversionResponse(
-                conversion_id=conversion_id,
-                status=ConversionStatus.COMPLETED,
-                html_file=str(html_file.name),
-                assets=[asset.name for asset in assets],
-                report={
-                    "score": 95.2,
-                    "missing_macros": [],
-                    "packages_used": ["amsmath", "graphicx", "booktabs"],
-                    "conversion_time": 2.5,
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "options": conversion_options.model_dump() if conversion_options else {}
-                }
-            )
+                return response
 
-            logger.info(f"Conversion {conversion_id} completed successfully")
-            return response
+            except ResourceLimitError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Service temporarily unavailable: {exc}"
+                )
+            except OrchestrationError as exc:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Conversion failed: {exc}"
+                )
 
         except Exception:
             # Cleanup on error
@@ -301,7 +318,7 @@ async def convert_latex_to_html(
 @router.get("/convert/{conversion_id}", response_model=ConversionStatusResponse)
 async def get_conversion_status(conversion_id: str) -> ConversionStatusResponse:
     """
-    Get the status of a conversion job.
+    Get the status of a conversion job using the orchestrator.
 
     Args:
         conversion_id: Unique conversion identifier
@@ -310,32 +327,37 @@ async def get_conversion_status(conversion_id: str) -> ConversionStatusResponse:
         ConversionStatusResponse: Conversion status and progress
     """
     try:
-        # Check if conversion exists in storage
-        conversion_data = _safe_get_conversion(conversion_id)
-        if not conversion_data:
+        orchestrator = get_orchestrator()
+
+        # Get job status
+        status = orchestrator.get_job_status(conversion_id)
+        if not status:
             raise HTTPException(status_code=404, detail="Conversion not found")
 
-        # Check if files still exist
-        temp_dir = Path(conversion_data["temp_dir"])
-        if not temp_dir.exists():
-            # Files have been cleaned up
-            return ConversionStatusResponse(
-                conversion_id=conversion_id,
-                status=ConversionStatus.FAILED,
-                progress=0,
-                message="Conversion files have been cleaned up",
-                created_at=conversion_data["created_at"],
-                updated_at=datetime.utcnow()
-            )
+        # Get progress information
+        progress = orchestrator.get_job_progress(conversion_id)
+
+        # Map orchestrator status to API status
+        status_mapping = {
+            ConversionStatusEnum.PENDING: ConversionStatus.PENDING,
+            ConversionStatusEnum.RUNNING: ConversionStatus.PROCESSING,
+            ConversionStatusEnum.COMPLETED: ConversionStatus.COMPLETED,
+            ConversionStatusEnum.FAILED: ConversionStatus.FAILED,
+            ConversionStatusEnum.CANCELLED: ConversionStatus.CANCELLED,
+        }
+        api_status = status_mapping.get(status, ConversionStatus.PENDING)
+        progress_percentage = progress.progress_percentage if progress else 0.0
+        message = progress.message if progress and progress.message else f"Status: {status.value}"
 
         return ConversionStatusResponse(
             conversion_id=conversion_id,
-            status=ConversionStatus.COMPLETED,
-            progress=100,
-            message="Conversion completed successfully",
-            created_at=conversion_data["created_at"],
+            status=api_status,
+            progress=int(progress_percentage),
+            message=message,
+            created_at=datetime.utcnow(),  # TODO: Get actual creation time from job
             updated_at=datetime.utcnow()
         )
+
     except HTTPException:
         raise
     except Exception as exc:
@@ -477,6 +499,48 @@ def _extract_archive(input_file: Path, temp_dir: Path) -> Path:
         f.write("\\documentclass{article}\n\\begin{document}\nHello World!\n\\end{document}")
 
     return extracted_dir
+
+
+def _find_main_tex_file(extracted_dir: Path) -> Path | None:
+    """
+    Find the main LaTeX file in the extracted directory.
+
+    Args:
+        extracted_dir: Path to extracted directory
+
+    Returns:
+        Path: Path to main LaTeX file or None if not found
+    """
+    # Look for common LaTeX file names
+    main_candidates = [
+        "main.tex",
+        "document.tex",
+        "paper.tex",
+        "article.tex",
+        "thesis.tex",
+        "report.tex"
+    ]
+
+    # Check for main candidates first
+    for candidate in main_candidates:
+        candidate_path = extracted_dir / candidate
+        if candidate_path.exists():
+            return candidate_path
+
+    # If no main candidate found, look for any .tex file
+    tex_files = list(extracted_dir.glob("*.tex"))
+    if tex_files:
+        # Return the first .tex file found
+        return tex_files[0]
+
+    # Look in subdirectories
+    for subdir in extracted_dir.iterdir():
+        if subdir.is_dir():
+            subdir_tex_files = list(subdir.glob("*.tex"))
+            if subdir_tex_files:
+                return subdir_tex_files[0]
+
+    return None
 
 
 def _create_mock_html(filename: str) -> str:

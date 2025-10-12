@@ -8,11 +8,12 @@ and enhance LaTeXML-generated HTML output.
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
-from urllib.parse import urljoin, urlparse
+from typing import Any
+from urllib.parse import urlparse
 
-from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4 import BeautifulSoup, NavigableString
 from lxml import etree, html
+
 try:
     from lxml.html.clean import Cleaner
 except ImportError:
@@ -24,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 class HTMLPostProcessingError(Exception):
     """Base exception for HTML post-processing errors."""
-    
-    def __init__(self, message: str, error_type: str = "HTML_PROCESSING_ERROR", details: Optional[Dict[str, Any]] = None):
+
+    def __init__(self, message: str, error_type: str = "HTML_PROCESSING_ERROR", details: dict[str, Any] | None = None):
         super().__init__(message)
         self.error_type = error_type
         self.details = details or {}
@@ -33,22 +34,22 @@ class HTMLPostProcessingError(Exception):
 
 class HTMLValidationError(HTMLPostProcessingError):
     """Raised when HTML validation fails."""
-    
-    def __init__(self, message: str, validation_errors: List[str]):
+
+    def __init__(self, message: str, validation_errors: list[str]):
         super().__init__(message, "VALIDATION_ERROR", {"validation_errors": validation_errors})
 
 
 class HTMLCleaningError(HTMLPostProcessingError):
     """Raised when HTML cleaning fails."""
-    
-    def __init__(self, message: str, cleaning_errors: List[str]):
+
+    def __init__(self, message: str, cleaning_errors: list[str]):
         super().__init__(message, "CLEANING_ERROR", {"cleaning_errors": cleaning_errors})
 
 
 class HTMLPostProcessor:
     """Service for post-processing LaTeXML HTML output."""
-    
-    def __init__(self, base_url: Optional[str] = None):
+
+    def __init__(self, base_url: str | None = None):
         """
         Initialize HTML post-processor.
         
@@ -57,7 +58,7 @@ class HTMLPostProcessor:
         """
         self.base_url = base_url
         self._setup_cleaner()
-    
+
     def _setup_cleaner(self) -> None:
         """Set up HTML cleaner with appropriate settings."""
         if Cleaner is not None:
@@ -79,13 +80,13 @@ class HTMLPostProcessor:
             )
         else:
             self.cleaner = None
-    
+
     def process_html(
         self,
         html_file: Path,
-        output_file: Optional[Path] = None,
-        options: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        output_file: Path | None = None,
+        options: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """
         Process HTML file with cleaning, validation, and enhancement.
         
@@ -102,15 +103,15 @@ class HTMLPostProcessor:
         """
         if not html_file.exists():
             raise HTMLPostProcessingError(f"HTML file not found: {html_file}")
-        
+
         try:
             # Load HTML content
-            with open(html_file, 'r', encoding='utf-8') as f:
+            with open(html_file, encoding='utf-8') as f:
                 html_content = f.read()
-            
+
             # Parse with BeautifulSoup
             soup = BeautifulSoup(html_content, 'html.parser')
-            
+
             # Apply processing steps
             processing_results = {
                 "original_size": len(html_content),
@@ -118,24 +119,24 @@ class HTMLPostProcessor:
                 "errors": [],
                 "warnings": []
             }
-            
+
             # Step 1: Clean HTML
             cleaned_soup = self._clean_html(soup, processing_results)
-            
+
             # Step 2: Validate HTML structure
             self._validate_html_structure(cleaned_soup, processing_results)
-            
+
             # Step 3: Enhance HTML
             enhanced_soup = self._enhance_html(cleaned_soup, processing_results)
-            
+
             # Step 4: Optimize HTML
             optimized_soup = self._optimize_html(enhanced_soup, processing_results)
-            
+
             # Generate output
             if output_file:
                 self._write_html(optimized_soup, output_file)
                 processing_results["output_file"] = str(output_file)
-            
+
             # Final statistics
             final_html = str(optimized_soup)
             processing_results.update({
@@ -143,43 +144,43 @@ class HTMLPostProcessor:
                 "size_reduction": processing_results["original_size"] - len(final_html),
                 "success": len(processing_results["errors"]) == 0
             })
-            
+
             return processing_results
-            
+
         except Exception as exc:
             logger.error("HTML post-processing failed: %s", exc)
             raise HTMLPostProcessingError(f"HTML post-processing failed: {exc}")
-    
-    def _clean_html(self, soup: BeautifulSoup, results: Dict[str, Any]) -> BeautifulSoup:
+
+    def _clean_html(self, soup: BeautifulSoup, results: dict[str, Any]) -> BeautifulSoup:
         """Clean HTML content."""
         try:
             # Remove LaTeXML-specific elements
             self._remove_latexml_elements(soup)
-            
+
             # Clean dangerous content
             self._clean_dangerous_content(soup)
-            
+
             # Remove empty elements
             self._remove_empty_elements(soup)
-            
+
             # Normalize whitespace
             self._normalize_whitespace(soup)
-            
+
             results["steps_completed"].append("html_cleaning")
             return soup
-            
+
         except Exception as exc:
             error_msg = f"HTML cleaning failed: {exc}"
             results["errors"].append(error_msg)
             logger.error(error_msg)
             return soup
-    
+
     def _remove_latexml_elements(self, soup: BeautifulSoup) -> None:
         """Remove LaTeXML-specific elements."""
         # Remove LaTeXML processing instructions
         for pi in soup.find_all(string=lambda text: isinstance(text, NavigableString) and text.strip().startswith('<?')):
             pi.extract()
-        
+
         # Remove LaTeXML-specific attributes
         for tag in soup.find_all():
             if tag.attrs:
@@ -187,18 +188,18 @@ class HTMLPostProcessor:
                 latexml_attrs = [attr for attr in tag.attrs.keys() if attr.startswith('latexml')]
                 for attr in latexml_attrs:
                     del tag.attrs[attr]
-    
+
     def _clean_dangerous_content(self, soup: BeautifulSoup) -> None:
         """Remove potentially dangerous content."""
         # Remove script tags
         for script in soup.find_all('script'):
             script.decompose()
-        
+
         # Remove style tags with potentially dangerous content
         for style in soup.find_all('style'):
             if 'javascript:' in str(style.string).lower():
                 style.decompose()
-        
+
         # Remove onclick and similar event handlers
         for tag in soup.find_all():
             if tag.attrs:
@@ -206,16 +207,16 @@ class HTMLPostProcessor:
                 for attr in dangerous_attrs:
                     if attr in tag.attrs:
                         del tag.attrs[attr]
-    
+
     def _remove_empty_elements(self, soup: BeautifulSoup) -> None:
         """Remove empty elements that don't add value."""
         empty_tags = ['span', 'div', 'p']
-        
+
         for tag_name in empty_tags:
             for tag in soup.find_all(tag_name):
                 if not tag.get_text(strip=True) and not tag.find_all():
                     tag.decompose()
-    
+
     def _normalize_whitespace(self, soup: BeautifulSoup) -> None:
         """Normalize whitespace in text content while preserving meaningful formatting."""
         for text_node in soup.find_all(string=True):
@@ -224,7 +225,7 @@ class HTMLPostProcessor:
                 parent = text_node.parent
                 if parent and parent.name in ['pre', 'code', 'textarea', 'script', 'style']:
                     continue
-                
+
                 # Skip if this is whitespace between inline elements (preserves word separation)
                 if text_node.strip() == '' and parent and parent.name in ['p', 'div', 'span', 'em', 'strong', 'a']:
                     # Only collapse multiple spaces/tabs to single space, don't strip
@@ -232,7 +233,7 @@ class HTMLPostProcessor:
                     if normalized != text_node:
                         text_node.replace_with(normalized)
                     continue
-                
+
                 # For other text nodes, normalize but preserve word boundaries
                 if text_node.strip():  # Only process non-empty text nodes
                     # Collapse multiple whitespace to single space, but preserve leading/trailing if meaningful
@@ -241,51 +242,51 @@ class HTMLPostProcessor:
                     if len(text_node.strip()) / len(text_node) < 0.3:  # Less than 30% actual content
                         normalized = normalized.strip()
                     text_node.replace_with(normalized)
-    
-    def _validate_html_structure(self, soup: BeautifulSoup, results: Dict[str, Any]) -> None:
+
+    def _validate_html_structure(self, soup: BeautifulSoup, results: dict[str, Any]) -> None:
         """Validate HTML structure."""
         try:
             validation_errors = []
-            
+
             # Check for required elements
             if not soup.find('html'):
                 validation_errors.append("Missing <html> element")
-            
+
             if not soup.find('head'):
                 validation_errors.append("Missing <head> element")
-            
+
             if not soup.find('body'):
                 validation_errors.append("Missing <body> element")
-            
+
             # Check for proper nesting
             self._validate_nesting(soup, validation_errors)
-            
+
             # Check for accessibility issues
             self._validate_accessibility(soup, validation_errors)
-            
+
             if validation_errors:
                 results["warnings"].extend(validation_errors)
             else:
                 results["steps_completed"].append("html_validation")
-                
+
         except Exception as exc:
             error_msg = f"HTML validation failed: {exc}"
             results["errors"].append(error_msg)
-    
-    def _validate_nesting(self, soup: BeautifulSoup, errors: List[str]) -> None:
+
+    def _validate_nesting(self, soup: BeautifulSoup, errors: list[str]) -> None:
         """Validate proper HTML nesting."""
         # Check for invalid nesting (e.g., <p> inside <p>)
         for p_tag in soup.find_all('p'):
             if p_tag.find('p'):
                 errors.append("Invalid nesting: <p> inside <p>")
-    
-    def _validate_accessibility(self, soup: BeautifulSoup, errors: List[str]) -> None:
+
+    def _validate_accessibility(self, soup: BeautifulSoup, errors: list[str]) -> None:
         """Validate accessibility features."""
         # Check for images without alt text
         for img in soup.find_all('img'):
             if not img.get('alt'):
                 errors.append(f"Image missing alt text: {img.get('src', 'unknown')}")
-        
+
         # Check for headings structure
         headings = soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
         if headings:
@@ -296,32 +297,32 @@ class HTMLPostProcessor:
                 if level > prev_level + 1:
                     errors.append(f"Invalid heading hierarchy: {heading.name} after h{prev_level}")
                 prev_level = level
-    
-    def _enhance_html(self, soup: BeautifulSoup, results: Dict[str, Any]) -> BeautifulSoup:
+
+    def _enhance_html(self, soup: BeautifulSoup, results: dict[str, Any]) -> BeautifulSoup:
         """Enhance HTML with additional features."""
         try:
             # Add MathJax support if math is present
             if soup.find(['math', 'm:math']):
                 self._add_mathjax_support(soup)
-            
+
             # Enhance links
             self._enhance_links(soup)
-            
+
             # Add responsive meta tag
             self._add_responsive_meta(soup)
-            
+
             # Add CSS for better styling
             self._add_enhancement_css(soup)
-            
+
             results["steps_completed"].append("html_enhancement")
             return soup
-            
+
         except Exception as exc:
             error_msg = f"HTML enhancement failed: {exc}"
             results["errors"].append(error_msg)
             logger.error(error_msg)
             return soup
-    
+
     def _add_mathjax_support(self, soup: BeautifulSoup) -> None:
         """Add MathJax support for math rendering."""
         head = soup.find('head')
@@ -339,12 +340,12 @@ class HTMLPostProcessor:
             });
             '''
             head.append(mathjax_config)
-            
+
             # Add MathJax script
-            mathjax_script = soup.new_tag('script', 
+            mathjax_script = soup.new_tag('script',
                                         src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?config=TeX-AMS-MML_HTMLorMML')
             head.append(mathjax_script)
-    
+
     def _enhance_links(self, soup: BeautifulSoup) -> None:
         """Enhance links with proper attributes."""
         for link in soup.find_all('a'):
@@ -354,26 +355,26 @@ class HTMLPostProcessor:
                 if self._is_external_link(href):
                     link['target'] = '_blank'
                     link['rel'] = 'noopener noreferrer'
-    
+
     def _is_external_link(self, href: str) -> bool:
         """Check if link is external."""
         if not self.base_url:
             return False
-        
+
         try:
             parsed_href = urlparse(href)
             parsed_base = urlparse(self.base_url)
             return parsed_href.netloc and parsed_href.netloc != parsed_base.netloc
         except Exception:
             return False
-    
+
     def _add_responsive_meta(self, soup: BeautifulSoup) -> None:
         """Add responsive meta tag."""
         head = soup.find('head')
         if head and not head.find('meta', attrs={'name': 'viewport'}):
             viewport_meta = soup.new_tag('meta', name='viewport', content='width=device-width, initial-scale=1.0')
             head.append(viewport_meta)
-    
+
     def _add_enhancement_css(self, soup: BeautifulSoup) -> None:
         """Add CSS for better styling."""
         head = soup.find('head')
@@ -387,28 +388,28 @@ class HTMLPostProcessor:
             th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
             '''
             head.append(style)
-    
-    def _optimize_html(self, soup: BeautifulSoup, results: Dict[str, Any]) -> BeautifulSoup:
+
+    def _optimize_html(self, soup: BeautifulSoup, results: dict[str, Any]) -> BeautifulSoup:
         """Optimize HTML for better performance."""
         try:
             # Minify HTML (basic)
             self._minify_html(soup)
-            
+
             # Optimize images
             self._optimize_images(soup)
-            
+
             # Remove unnecessary attributes
             self._remove_unnecessary_attributes(soup)
-            
+
             results["steps_completed"].append("html_optimization")
             return soup
-            
+
         except Exception as exc:
             error_msg = f"HTML optimization failed: {exc}"
             results["errors"].append(error_msg)
             logger.error(error_msg)
             return soup
-    
+
     def _minify_html(self, soup: BeautifulSoup) -> None:
         """Basic HTML minification."""
         # Remove unnecessary whitespace
@@ -416,44 +417,44 @@ class HTMLPostProcessor:
             if isinstance(text_node, NavigableString):
                 # Remove leading/trailing whitespace
                 text_node.replace_with(text_node.strip())
-    
+
     def _optimize_images(self, soup: BeautifulSoup) -> None:
         """Optimize image tags."""
         for img in soup.find_all('img'):
             # Add loading="lazy" for performance
             if not img.get('loading'):
                 img['loading'] = 'lazy'
-    
+
     def _remove_unnecessary_attributes(self, soup: BeautifulSoup) -> None:
         """Remove unnecessary attributes while preserving namespace declarations."""
         # Only remove LaTeXML-specific attributes, preserve XML namespaces
         latexml_attrs = ['data-latexml']
-        
+
         for tag in soup.find_all():
             if tag.attrs:
                 # Remove LaTeXML-specific attributes
                 for attr in latexml_attrs:
                     if attr in tag.attrs:
                         del tag.attrs[attr]
-                
+
                 # Only remove xml:space if it's not in MathML/SVG context
                 if 'xml:space' in tag.attrs:
                     # Check if this is a MathML or SVG element that needs xml:space
                     if tag.name not in ['math', 'm:math', 'svg', 'g', 'path', 'circle', 'rect']:
                         del tag.attrs['xml:space']
-    
+
     def _write_html(self, soup: BeautifulSoup, output_file: Path) -> None:
         """Write HTML to file."""
         try:
             output_file.parent.mkdir(parents=True, exist_ok=True)
-            
+
             with open(output_file, 'w', encoding='utf-8') as f:
                 f.write(str(soup.prettify()))
-                
+
         except Exception as exc:
             raise HTMLPostProcessingError(f"Failed to write HTML file: {exc}")
-    
-    def validate_html_file(self, html_file: Path) -> Dict[str, Any]:
+
+    def validate_html_file(self, html_file: Path) -> dict[str, Any]:
         """
         Validate HTML file structure and content.
         
@@ -465,11 +466,11 @@ class HTMLPostProcessor:
         """
         if not html_file.exists():
             raise HTMLPostProcessingError(f"HTML file not found: {html_file}")
-        
+
         try:
-            with open(html_file, 'r', encoding='utf-8') as f:
+            with open(html_file, encoding='utf-8') as f:
                 html_content = f.read()
-            
+
             # Parse with lxml for validation
             try:
                 html.fromstring(html_content)
@@ -478,15 +479,15 @@ class HTMLPostProcessor:
             except etree.XMLSyntaxError as exc:
                 is_valid = False
                 validation_errors = [str(exc)]
-            
+
             # Additional checks with BeautifulSoup
             soup = BeautifulSoup(html_content, 'html.parser')
-            
+
             # Check for required elements
             has_html = bool(soup.find('html'))
             has_head = bool(soup.find('head'))
             has_body = bool(soup.find('body'))
-            
+
             return {
                 "is_valid": is_valid,
                 "validation_errors": validation_errors,
@@ -497,6 +498,6 @@ class HTMLPostProcessor:
                 "element_count": len(soup.find_all()),
                 "text_length": len(soup.get_text())
             }
-            
+
         except Exception as exc:
             raise HTMLPostProcessingError(f"HTML validation failed: {exc}")
