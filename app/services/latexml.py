@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.config.latexml import LaTeXMLSettings, LaTeXMLConversionOptions
+from app.configs.latexml import LaTeXMLSettings, LaTeXMLConversionOptions
 from app.utils.shell import run_command_safely, CommandResult
 from app.utils.fs import ensure_directory, cleanup_directory, get_file_info
 
