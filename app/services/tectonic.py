@@ -17,7 +17,7 @@ from app.utils.shell import run_command_safely
 
 class TectonicCompilationError(Exception):
     """Raised when Tectonic compilation fails."""
-    
+
     def __init__(self, message: str, error_type: str = "COMPILATION_ERROR", details: dict | None = None):
         super().__init__(message)
         self.error_type = error_type
@@ -26,7 +26,7 @@ class TectonicCompilationError(Exception):
 
 class TectonicTimeoutError(TectonicCompilationError):
     """Raised when Tectonic compilation times out."""
-    
+
     def __init__(self, timeout_seconds: int):
         super().__init__(
             f"Tectonic compilation timed out after {timeout_seconds} seconds",
@@ -37,14 +37,14 @@ class TectonicTimeoutError(TectonicCompilationError):
 
 class TectonicFileError(TectonicCompilationError):
     """Raised when there are file-related issues with Tectonic compilation."""
-    
+
     def __init__(self, message: str, file_path: str | None = None):
         super().__init__(message, "FILE_ERROR", {"file_path": file_path})
 
 
 class TectonicSecurityError(TectonicCompilationError):
     """Raised when security issues are detected in Tectonic compilation."""
-    
+
     def __init__(self, message: str, security_issue: str):
         super().__init__(message, "SECURITY_ERROR", {"security_issue": security_issue})
 
@@ -146,7 +146,7 @@ class TectonicService:
             logger.info(f"Compilation successful: {compilation_result['output_file']}")
             return compilation_result
 
-        except subprocess.TimeoutExpired as exc:
+        except subprocess.TimeoutExpired:
             raise TectonicTimeoutError(300)
         except TectonicCompilationError:
             # Re-raise our custom errors
@@ -176,13 +176,13 @@ class TectonicService:
 
         # Security: Keep logs and intermediates for debugging
         cmd.extend([
-            "--keep-logs", 
+            "--keep-logs",
             "--keep-intermediates"
         ])
-        
+
         # Security: Use untrusted mode to disable insecure features
         cmd.append("--untrusted")
-        
+
         # Note: Tectonic doesn't support --no-shell-escape, --no-interaction, or --halt-on-error
         # The --untrusted flag provides the security we need
 
@@ -319,12 +319,12 @@ class TectonicService:
             TectonicSecurityError: If security issues are detected
         """
         # Check file extension
-        if not input_file.suffix.lower() in ['.tex', '.latex']:
+        if input_file.suffix.lower() not in ['.tex', '.latex']:
             raise TectonicSecurityError(
                 f"Invalid file extension: {input_file.suffix}",
                 "INVALID_EXTENSION"
             )
-        
+
         # Check for dangerous patterns in filename
         dangerous_patterns = ['..', '/', '\\', '~', '$', '`', '|', '&', ';']
         filename = str(input_file.name)
@@ -334,7 +334,7 @@ class TectonicService:
                     f"Dangerous pattern in filename: {pattern}",
                     "DANGEROUS_FILENAME"
                 )
-        
+
         # Check file size (prevent extremely large files)
         try:
             file_size = input_file.stat().st_size
@@ -369,10 +369,10 @@ class TectonicService:
                 "error_lines": []
             }
         }
-        
+
         # Parse common LaTeX errors
         stderr_lower = stderr.lower()
-        
+
         if "emergency stop" in stderr_lower:
             error_info["error_type"] = "EMERGENCY_STOP"
             error_info["message"] = "LaTeX compilation stopped due to emergency"
@@ -391,13 +391,13 @@ class TectonicService:
         elif "error" in stderr_lower:
             error_info["error_type"] = "GENERAL_ERROR"
             error_info["message"] = "General LaTeX compilation error"
-        
+
         # Extract error lines
         error_lines = []
         for line in stderr.split('\n'):
             if any(keyword in line.lower() for keyword in ['error', 'emergency', 'undefined', 'missing']):
                 error_lines.append(line.strip())
-        
+
         error_info["details"]["error_lines"] = error_lines
-        
+
         return error_info

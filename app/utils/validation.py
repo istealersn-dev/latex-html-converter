@@ -5,12 +5,11 @@ This module provides common validation functions to avoid duplication
 across different configuration and model classes.
 """
 
-from typing import List
 
 
 class ValidationUtils:
     """Shared validation utilities for common validation patterns."""
-    
+
     @staticmethod
     def validate_file_size(size: int, max_size: int = 500 * 1024 * 1024) -> int:
         """
@@ -31,9 +30,9 @@ class ValidationUtils:
         if size > max_size:
             raise ValueError(f"File size cannot exceed {max_size} bytes")
         return size
-    
+
     @staticmethod
-    def validate_output_format(format_str: str, allowed_formats: List[str]) -> str:
+    def validate_output_format(format_str: str, allowed_formats: list[str]) -> str:
         """
         Validate output format with common logic.
         
@@ -50,7 +49,7 @@ class ValidationUtils:
         if format_str.lower() not in allowed_formats:
             raise ValueError(f"Output format must be one of: {allowed_formats}")
         return format_str.lower()
-    
+
     @staticmethod
     def validate_timeout(timeout: int, max_timeout: int = 3600) -> int:
         """
@@ -71,9 +70,9 @@ class ValidationUtils:
         if timeout > max_timeout:
             raise ValueError(f"Timeout cannot exceed {max_timeout} seconds")
         return timeout
-    
+
     @staticmethod
-    def validate_extensions(extensions: List[str]) -> List[str]:
+    def validate_extensions(extensions: list[str]) -> list[str]:
         """
         Validate file extensions with common logic.
         
@@ -90,7 +89,7 @@ class ValidationUtils:
             raise ValueError("At least one extension must be allowed")
         # Ensure extensions start with dot
         return [ext if ext.startswith('.') else f'.{ext}' for ext in extensions]
-    
+
     @staticmethod
     def validate_positive_integer(value: int, field_name: str) -> int:
         """

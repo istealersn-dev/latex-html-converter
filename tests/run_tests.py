@@ -17,7 +17,7 @@ def run_tests():
     """Run all tests."""
     print("🧪 Running LaTeX to HTML5 Converter Tests...")
     print("=" * 50)
-    
+
     # Run the tests
     test_files = [
         "tests/test_tectonic_service.py",
@@ -26,14 +26,14 @@ def run_tests():
         "tests/test_latexml_integration.py",
         "tests/test_html_post_processor.py"
     ]
-    
+
     for test_file in test_files:
         print(f"\n📁 Running {test_file}...")
         result = pytest.main([test_file, "-v", "--tb=short"])
         if result != 0:
             print(f"❌ Tests in {test_file} failed")
             return False
-    
+
     print("\n✅ All tests completed successfully!")
     return True
 

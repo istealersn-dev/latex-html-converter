@@ -11,19 +11,19 @@ import tempfile
 import threading
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from loguru import logger
 
 from app.config import settings
-from app.models.request import ConversionOptions as RequestConversionOptions
 from app.models.conversion import ConversionOptions
+from app.models.conversion import ConversionStatus as ConversionStatusEnum
 from app.models.response import ConversionResponse, ConversionStatus, ConversionStatusResponse
-from app.services.orchestrator import get_orchestrator, OrchestrationError, ResourceLimitError
+from app.services.orchestrator import OrchestrationError, ResourceLimitError, get_orchestrator
 
 router = APIRouter()
 
@@ -226,7 +226,7 @@ async def convert_latex_to_html(
 
         # Parse conversion options
         request_options = _parse_conversion_options(options)
-        
+
         # Convert to orchestrator options
         conversion_options = None
         if request_options:
@@ -238,7 +238,7 @@ async def convert_latex_to_html(
 
         # Create temporary directory for processing
         temp_dir = Path(tempfile.mkdtemp(prefix=f"conversion_{uuid.uuid4()}_"))
-        
+
         try:
             # Save uploaded file
             input_file = temp_dir / f"input{file_ext}"
@@ -263,14 +263,14 @@ async def convert_latex_to_html(
 
             # Get orchestrator and start conversion
             orchestrator = get_orchestrator()
-            
+
             try:
                 job_id = orchestrator.start_conversion(
                     input_file=main_tex_file,
                     output_dir=output_dir,
                     options=conversion_options
                 )
-                
+
                 logger.info(f"Started conversion job: {job_id}")
 
                 # For now, return a pending response
@@ -328,20 +328,27 @@ async def get_conversion_status(conversion_id: str) -> ConversionStatusResponse:
     """
     try:
         orchestrator = get_orchestrator()
-        
+
         # Get job status
         status = orchestrator.get_job_status(conversion_id)
         if not status:
             raise HTTPException(status_code=404, detail="Conversion not found")
-        
+
         # Get progress information
         progress = orchestrator.get_job_progress(conversion_id)
-        
+
         # Map orchestrator status to API status
-        api_status = status
+        status_mapping = {
+            ConversionStatusEnum.PENDING: ConversionStatus.PENDING,
+            ConversionStatusEnum.RUNNING: ConversionStatus.PROCESSING,
+            ConversionStatusEnum.COMPLETED: ConversionStatus.COMPLETED,
+            ConversionStatusEnum.FAILED: ConversionStatus.FAILED,
+            ConversionStatusEnum.CANCELLED: ConversionStatus.CANCELLED,
+        }
+        api_status = status_mapping.get(status, ConversionStatus.PENDING)
         progress_percentage = progress.progress_percentage if progress else 0.0
         message = progress.message if progress and progress.message else f"Status: {status.value}"
-        
+
         return ConversionStatusResponse(
             conversion_id=conversion_id,
             status=api_status,
@@ -350,7 +357,7 @@ async def get_conversion_status(conversion_id: str) -> ConversionStatusResponse:
             created_at=datetime.utcnow(),  # TODO: Get actual creation time from job
             updated_at=datetime.utcnow()
         )
-        
+
     except HTTPException:
         raise
     except Exception as exc:
@@ -494,7 +501,7 @@ def _extract_archive(input_file: Path, temp_dir: Path) -> Path:
     return extracted_dir
 
 
-def _find_main_tex_file(extracted_dir: Path) -> Optional[Path]:
+def _find_main_tex_file(extracted_dir: Path) -> Path | None:
     """
     Find the main LaTeX file in the extracted directory.
 
@@ -507,32 +514,32 @@ def _find_main_tex_file(extracted_dir: Path) -> Optional[Path]:
     # Look for common LaTeX file names
     main_candidates = [
         "main.tex",
-        "document.tex", 
+        "document.tex",
         "paper.tex",
         "article.tex",
         "thesis.tex",
         "report.tex"
     ]
-    
+
     # Check for main candidates first
     for candidate in main_candidates:
         candidate_path = extracted_dir / candidate
         if candidate_path.exists():
             return candidate_path
-    
+
     # If no main candidate found, look for any .tex file
     tex_files = list(extracted_dir.glob("*.tex"))
     if tex_files:
         # Return the first .tex file found
         return tex_files[0]
-    
+
     # Look in subdirectories
     for subdir in extracted_dir.iterdir():
         if subdir.is_dir():
             subdir_tex_files = list(subdir.glob("*.tex"))
             if subdir_tex_files:
                 return subdir_tex_files[0]
-    
+
     return None
 
 
