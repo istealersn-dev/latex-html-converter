@@ -69,7 +69,7 @@ class HTMLPostProcessor:
             asset_validator: Service for validating converted assets
         """
         self.base_url = base_url
-        self.asset_conversion_service = asset_conversion_service or AssetConversionService()
+        self.asset_conversion_service = asset_conversion_service
         self.asset_validator = asset_validator or AssetValidator()
         self._setup_cleaner()
 
@@ -535,6 +535,12 @@ class HTMLPostProcessor:
     def _convert_assets_to_svg(self, soup: BeautifulSoup, html_dir: Path, results: dict[str, Any]) -> BeautifulSoup:
         """Convert assets (TikZ, PDF) to SVG format."""
         try:
+            # Skip asset conversion if service is not available
+            if self.asset_conversion_service is None:
+                logger.info("Asset conversion service not available, skipping asset conversion")
+                results["steps_completed"].append("asset_conversion_skipped")
+                return soup
+            
             # Create assets directory
             assets_dir = html_dir / "assets"
             assets_dir.mkdir(exist_ok=True)
