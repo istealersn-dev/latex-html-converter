@@ -6,6 +6,7 @@ Tectonic → LaTeXML → HTML Post-Processing
 """
 
 import logging
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -75,7 +76,7 @@ class ConversionPipeline:
 
         # Active jobs tracking
         self._active_jobs: dict[str, ConversionJob] = {}
-        self._job_lock = None  # Will be set up with threading if needed
+        self._job_lock = threading.RLock()  # Thread-safe access to active jobs
 
     def create_conversion_job(
         self,
@@ -127,6 +128,10 @@ class ConversionPipeline:
 
             # Initialize pipeline stages
             self._initialize_pipeline_stages(job)
+
+            # Register job in active jobs tracking (thread-safe)
+            with self._job_lock:
+                self._active_jobs[job.job_id] = job
 
             logger.info(f"Created conversion job: {job.job_id}")
             return job
@@ -201,9 +206,10 @@ class ConversionPipeline:
         Returns:
             ConversionProgress: Progress information or None if job not found
         """
-        job = self._active_jobs.get(job_id)
-        if not job:
-            return None
+        with self._job_lock:
+            job = self._active_jobs.get(job_id)
+            if not job:
+                return None
 
         # Calculate overall progress
         total_stages = len(job.stages)
@@ -239,16 +245,17 @@ class ConversionPipeline:
         Returns:
             bool: True if job was cancelled, False if not found
         """
-        job = self._active_jobs.get(job_id)
-        if not job:
-            return False
+        with self._job_lock:
+            job = self._active_jobs.get(job_id)
+            if not job:
+                return False
 
-        if job.status in [ConversionStatus.COMPLETED, ConversionStatus.FAILED, ConversionStatus.CANCELLED]:
-            return False
+            if job.status in [ConversionStatus.COMPLETED, ConversionStatus.FAILED, ConversionStatus.CANCELLED]:
+                return False
 
-        job.status = ConversionStatus.CANCELLED
-        job.completed_at = datetime.utcnow()
-        job.current_stage = ConversionStage.CANCELLED
+            job.status = ConversionStatus.CANCELLED
+            job.completed_at = datetime.utcnow()
+            job.current_stage = ConversionStage.CANCELLED
 
         logger.info(f"Cancelled job: {job_id}")
         return True
@@ -263,17 +270,19 @@ class ConversionPipeline:
         Returns:
             bool: True if cleanup was successful, False if job not found
         """
-        job = self._active_jobs.get(job_id)
-        if not job:
-            return False
+        with self._job_lock:
+            job = self._active_jobs.get(job_id)
+            if not job:
+                return False
 
         try:
             # Clean up temporary files
             if job.output_dir.exists():
                 cleanup_directory(job.output_dir)
 
-            # Remove from active jobs
-            self._active_jobs.pop(job_id, None)
+            # Remove from active jobs (thread-safe)
+            with self._job_lock:
+                self._active_jobs.pop(job_id, None)
 
             logger.info(f"Cleaned up job: {job_id}")
             return True
