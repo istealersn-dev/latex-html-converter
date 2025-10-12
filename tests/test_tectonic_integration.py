@@ -15,7 +15,7 @@ class TestTectonicIntegration:
 
     def test_simple_latex_compilation(self):
         """Test compilation of a simple LaTeX document."""
-        service = TectonicService()
+        service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
         
         # Create a simple LaTeX document
         latex_content = r"""
@@ -78,7 +78,7 @@ This concludes our test document.
 
     def test_latex_with_errors(self):
         """Test handling of LaTeX documents with errors."""
-        service = TectonicService()
+        service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
         
         # Create a LaTeX document with intentional errors
         latex_content = r"""
@@ -122,7 +122,7 @@ This section will never be reached due to the error above.
 
     def test_latex_with_missing_package(self):
         """Test handling of missing LaTeX packages."""
-        service = TectonicService()
+        service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
         
         # Create a LaTeX document that requires a non-existent package
         latex_content = r"""
@@ -161,7 +161,7 @@ This document requires a package that doesn't exist.
 
     def test_security_validation(self):
         """Test security validation features."""
-        service = TectonicService()
+        service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
         
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -186,7 +186,7 @@ This document requires a package that doesn't exist.
 
     def test_compilation_with_options(self):
         """Test compilation with different options."""
-        service = TectonicService()
+        service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
         
         latex_content = r"""
 \documentclass{article}

@@ -21,8 +21,8 @@ class TestTectonicService:
 
     def test_service_initialization(self):
         """Test that the service initializes correctly."""
-        service = TectonicService()
-        assert service.tectonic_path == "tectonic"
+        service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
+        assert service.tectonic_path == "/opt/homebrew/bin/tectonic"
 
     def test_service_with_custom_path(self):
         """Test service with custom tectonic path."""
@@ -31,13 +31,13 @@ class TestTectonicService:
 
     def test_verify_tectonic_success(self):
         """Test successful Tectonic verification."""
-        service = TectonicService()
+        service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
         # This should not raise an exception if Tectonic is installed
         service._verify_tectonic()
 
     def test_validate_input_file_security_valid(self):
         """Test security validation with valid file."""
-        service = TectonicService()
+        service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
         
         # Create a temporary .tex file
         with tempfile.NamedTemporaryFile(suffix='.tex', delete=False) as f:
@@ -52,7 +52,7 @@ class TestTectonicService:
 
     def test_validate_input_file_security_invalid_extension(self):
         """Test security validation with invalid file extension."""
-        service = TectonicService()
+        service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
         
         # Create a temporary file with wrong extension
         with tempfile.NamedTemporaryFile(suffix='.txt', delete=False) as f:
@@ -68,7 +68,7 @@ class TestTectonicService:
 
     def test_validate_input_file_security_dangerous_filename(self):
         """Test security validation with dangerous filename."""
-        service = TectonicService()
+        service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
         
         # Create a temporary file with dangerous characters
         with tempfile.NamedTemporaryFile(suffix='.tex', prefix='dangerous..', delete=False) as f:
@@ -84,7 +84,7 @@ class TestTectonicService:
 
     def test_parse_compilation_error_emergency_stop(self):
         """Test parsing emergency stop error."""
-        service = TectonicService()
+        service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
         
         stderr = "! Emergency stop. Some error occurred."
         stdout = ""
@@ -96,7 +96,7 @@ class TestTectonicService:
 
     def test_parse_compilation_error_undefined_control(self):
         """Test parsing undefined control sequence error."""
-        service = TectonicService()
+        service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
         
         stderr = "! Undefined control sequence. \\undefinedcommand"
         stdout = ""
@@ -108,7 +108,7 @@ class TestTectonicService:
 
     def test_parse_compilation_error_file_not_found(self):
         """Test parsing file not found error."""
-        service = TectonicService()
+        service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
         
         stderr = "! LaTeX Error: File `missing.sty' not found."
         stdout = ""
@@ -120,7 +120,7 @@ class TestTectonicService:
 
     def test_build_command_basic(self):
         """Test basic command building."""
-        service = TectonicService()
+        service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
         
         input_file = Path("test.tex")
         output_dir = Path("output")
@@ -128,17 +128,17 @@ class TestTectonicService:
         
         cmd = service._build_command(input_file, output_dir, options)
         
-        assert cmd[0] == "tectonic"
-        assert "--no-shell-escape" in cmd
-        assert "--no-interaction" in cmd
-        assert "--halt-on-error" in cmd
+        assert cmd[0] == "/opt/homebrew/bin/tectonic"
+        assert "--keep-logs" in cmd
+        assert "--keep-intermediates" in cmd
+        assert "--untrusted" in cmd
         assert "--outdir" in cmd
         assert str(output_dir) in cmd
         assert str(input_file) in cmd
 
     def test_build_command_with_options(self):
         """Test command building with options."""
-        service = TectonicService()
+        service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
         
         input_file = Path("test.tex")
         output_dir = Path("output")
@@ -156,7 +156,7 @@ class TestTectonicService:
 
     def test_cleanup_auxiliary_files(self):
         """Test auxiliary file cleanup."""
-        service = TectonicService()
+        service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
         
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -188,7 +188,7 @@ class TestTectonicService:
 
     def test_get_compilation_info(self):
         """Test compilation info retrieval."""
-        service = TectonicService()
+        service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
         
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

@@ -104,9 +104,21 @@ def _validate_command_safety(cmd: list[str]) -> None:
     dangerous_patterns = [
         '&&', '||', ';', '|', '>', '<', '>>', '<<', '&',
         '$(', '`', '$(', '${', 'exec', 'eval', 'source',
-        'rm -rf', 'rmdir', 'del', 'format', 'fdisk',
+        'rm -rf', 'rmdir', 'del', 'fdisk',
         'mkfs', 'dd', 'shutdown', 'reboot'
     ]
+    
+    # Whitelist legitimate LaTeX flags that contain "format"
+    latex_flags = ['--format=', '-f ', '--format']
+    cmd_str = ' '.join(cmd)
+    
+    # Check if any dangerous pattern is present but not as a LaTeX flag
+    for pattern in dangerous_patterns:
+        if pattern in cmd_str.lower():
+            # Allow if it's part of a legitimate LaTeX flag
+            is_latex_flag = any(flag in cmd_str for flag in latex_flags)
+            if not is_latex_flag:
+                raise ValueError(f"Unsafe command pattern detected: {pattern}")
     
     # Additional check for dangerous commands (but not flags)
     dangerous_commands = ['halt', 'kill', 'pkill']
