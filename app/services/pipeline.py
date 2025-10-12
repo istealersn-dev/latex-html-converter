@@ -24,7 +24,7 @@ from app.models.conversion import (
 )
 from app.services.html_post import HTMLPostProcessingError, HTMLPostProcessor
 from app.services.latexml import LaTeXMLError, LaTeXMLService
-from app.services.tectonic import TectonicCompilationError, TectonicService
+from app.services.pdflatex import PDFLaTeXCompilationError, PDFLaTeXService
 from app.utils.fs import cleanup_directory, ensure_directory, get_file_info
 
 
@@ -50,7 +50,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
     def __init__(
         self,
-        tectonic_service: TectonicService | None = None,
+        tectonic_service: PDFLaTeXService | None = None,
         latexml_service: LaTeXMLService | None = None,
         html_processor: HTMLPostProcessor | None = None
     ):
@@ -64,7 +64,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
         """
         from app.config import settings
         from app.configs.latexml import LaTeXMLSettings
-        self.tectonic_service = tectonic_service or TectonicService(tectonic_path=settings.TECTONIC_PATH)
+        self.tectonic_service = tectonic_service or PDFLaTeXService(pdflatex_path="/usr/bin/pdflatex")
         self.latexml_service = latexml_service or LaTeXMLService(settings=LaTeXMLSettings(latexml_path=settings.LATEXML_PATH))
         self.html_processor = html_processor or HTMLPostProcessor()
 
@@ -345,7 +345,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
             logger.info(f"Tectonic compilation completed for job: {job.job_id}")
 
-        except TectonicCompilationError as exc:
+        except PDFLaTeXCompilationError as exc:
             stage.status = ConversionStatus.FAILED
             stage.error_message = str(exc)
             stage.completed_at = datetime.utcnow()

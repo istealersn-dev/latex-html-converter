@@ -1,4 +1,4 @@
-version: '3.8'
+
 
 services:
   latex-converter:
@@ -11,10 +11,10 @@ services:
     volumes:
       # Mount source code for hot-reloading in development
       - .:/app
-      # Persistent volumes for uploads and outputs
-      - uploads_data:/app/uploads
-      - outputs_data:/app/outputs
-      - logs_data:/app/logs
+      # Mount local directories for accessible outputs
+      - ./.sample/uploads:/app/uploads
+      - ./.sample/outputs:/app/outputs
+      - ./.sample/logs:/app/logs
     environment:
       # Development environment variables
       - ENVIRONMENT=development
@@ -40,11 +40,6 @@ services:
     # Enable interactive terminal for debugging
     stdin_open: true
     tty: true
+    # Override command for development with hot-reloading
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-volumes:
-  uploads_data:
-    driver: local
-  outputs_data:
-    driver: local
-  logs_data:
-    driver: local

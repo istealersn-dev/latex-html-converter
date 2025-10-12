@@ -11,20 +11,28 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    python3.11 \
-    python3.11-dev \
-    python3.11-venv \
+    python3 \
+    python3-dev \
+    python3-venv \
     python3-pip \
     curl \
     git \
+    make \
+    build-essential \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Create symbolic link for python
-RUN ln -s /usr/bin/python3.11 /usr/bin/python
+# Create symbolic link for pdflatex as tectonic (since TeXLive has pdflatex but not tectonic)
+RUN ln -sf /usr/bin/pdflatex /usr/local/bin/tectonic
 
-# Install Poetry
-RUN curl -sSL https://install.python-poetry.org | python3.11 -
-ENV PATH="/root/.local/bin:$PATH"
+# Install LaTeXML and PDF tools
+RUN apt-get update && apt-get install -y \
+    latexml \
+    poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create symbolic link for python (if it doesn't exist)
+RUN ln -sf /usr/bin/python3 /usr/bin/python
 
 # Set working directory
 WORKDIR /app
@@ -32,21 +40,27 @@ WORKDIR /app
 # Copy Poetry files
 COPY pyproject.toml ./
 
+# Install Poetry as root
+RUN curl -sSL https://install.python-poetry.org | python3 -
+ENV PATH="/root/.local/bin:$PATH"
+
 # Configure Poetry
 RUN poetry config virtualenvs.create false
 
 # Install Python dependencies
-RUN poetry install --no-dev --no-interaction --no-ansi
+RUN poetry install --only=main --no-interaction --no-ansi --no-root
+
+# Create non-root user for security
+RUN useradd --create-home --shell /bin/bash appuser
 
 # Copy application code
 COPY . .
 
-# Create necessary directories
-RUN mkdir -p /app/uploads /app/outputs /app/logs
-
-# Create non-root user for security
-RUN useradd --create-home --shell /bin/bash appuser && \
+# Create necessary directories and set ownership
+RUN mkdir -p /app/uploads /app/outputs /app/logs && \
     chown -R appuser:appuser /app
+
+# Switch to appuser for runtime
 USER appuser
 
 # Expose port
@@ -57,4 +71,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/api/v1/health || exit 1
 
 # Default command
-CMD ["poetry", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -47,7 +47,7 @@ class TikZConversionFileError(TikZConversionError, ServiceFileError):
 class TikZConversionService:
     """Service for converting TikZ diagrams to SVG format."""
 
-    def __init__(self, dvisvgm_path: str = "dvisvgm", tectonic_path: str = "tectonic"):
+    def __init__(self, dvisvgm_path: str = "dvisvgm", tectonic_path: str = "pdflatex"):
         """
         Initialize the TikZ conversion service.
 
@@ -191,14 +191,15 @@ class TikZConversionService:
             pdf_file = temp_dir / f"{latex_file.stem}.pdf"
             
             cmd = [
-                self.tectonic_path,
-                "--untrusted",
-                "--keep-logs",
-                "--keep-intermediates",
+                self.tectonic_path,  # This is now pdflatex
+                "--no-shell-escape",
+                "--halt-on-error",
+                "--interaction=nonstopmode",
+                "-output-directory", str(temp_dir),
                 str(latex_file)
             ]
             
-            logger.debug(f"Compiling TikZ with tectonic: {' '.join(cmd)}")
+            logger.debug(f"Compiling TikZ with pdflatex: {' '.join(cmd)}")
             
             result = run_command_safely(
                 cmd,

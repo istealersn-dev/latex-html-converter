@@ -347,23 +347,32 @@ class HTMLPostProcessor:
         """Add MathJax support for math rendering."""
         head = soup.find('head')
         if head:
-            # Add MathJax configuration
+            # Add MathJax 3.x configuration
             mathjax_config = soup.new_tag('script', attrs={'type': 'text/x-mathjax-config'})
             mathjax_config.string = '''
-            MathJax.Hub.Config({
-                tex2jax: {
+            window.MathJax = {
+                tex: {
                     inlineMath: [['$','$'], ['\\(','\\)']],
                     displayMath: [['$$','$$'], ['\\[','\\]']],
-                    processEscapes: true
+                    processEscapes: true,
+                    processEnvironments: true
                 },
-                "HTML-CSS": { availableFonts: ["TeX"] }
-            });
+                options: {
+                    skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
+                },
+                svg: {
+                    fontCache: 'global'
+                }
+            };
             '''
             head.append(mathjax_config)
 
-            # Add MathJax script
-            mathjax_script = soup.new_tag('script', attrs={'src': 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?config=TeX-AMS-MML_HTMLorMML'})
+            # Add MathJax 3.x script
+            mathjax_script = soup.new_tag('script', attrs={'src': 'https://polyfill.io/v3/polyfill.min.js?features=es6'})
             head.append(mathjax_script)
+            
+            mathjax_main = soup.new_tag('script', attrs={'id': 'MathJax-script', 'async': True, 'src': 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js'})
+            head.append(mathjax_main)
 
     def _process_math_expressions(self, soup: BeautifulSoup) -> None:
         """Process mathematical expressions for MathJax compatibility."""
