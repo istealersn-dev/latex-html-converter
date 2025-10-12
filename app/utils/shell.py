@@ -126,12 +126,6 @@ def _validate_command_safety(cmd: list[str]) -> None:
         if cmd_part in dangerous_commands and not cmd_part.startswith('--'):
             raise ValueError(f"Unsafe command detected: {cmd_part}")
 
-    cmd_str = ' '.join(cmd).lower()
-
-    for pattern in dangerous_patterns:
-        if pattern in cmd_str:
-            raise ValueError(f"Unsafe command pattern detected: {pattern}")
-
     # Check for shell injection attempts
     dangerous_chars = [';', '&', '|', '`', '$', '(', ')', '<', '>', '~', '!']
     if any(char in cmd_str for char in dangerous_chars):

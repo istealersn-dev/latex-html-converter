@@ -15,13 +15,16 @@ import pytest
 
 def run_tests():
     """Run all tests."""
-    print("🧪 Running Tectonic Service Tests...")
+    print("🧪 Running LaTeX to HTML5 Converter Tests...")
     print("=" * 50)
     
     # Run the tests
     test_files = [
         "tests/test_tectonic_service.py",
-        "tests/test_tectonic_integration.py"
+        "tests/test_tectonic_integration.py",
+        "tests/test_latexml_service.py",
+        "tests/test_latexml_integration.py",
+        "tests/test_html_post_processor.py"
     ]
     
     for test_file in test_files:
