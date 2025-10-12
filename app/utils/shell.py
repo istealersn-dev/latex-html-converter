@@ -115,9 +115,10 @@ def _validate_command_safety(cmd: list[str]) -> None:
     # Check if any dangerous pattern is present but not as a LaTeX flag
     for pattern in dangerous_patterns:
         if pattern in cmd_str.lower():
-            # Allow if it's part of a legitimate LaTeX flag
+            # Allow if it's part of a legitimate LaTeX flag or LaTeXML command
             is_latex_flag = any(flag in cmd_str for flag in latex_flags)
-            if not is_latex_flag:
+            is_latexml_cmd = any(latex_cmd in cmd_str for latex_cmd in ['latexml', 'latexmlc', 'pdflatex', 'tectonic'])
+            if not is_latex_flag and not is_latexml_cmd:
                 raise ValueError(f"Unsafe command pattern detected: {pattern}")
 
     # Additional check for dangerous commands (but not flags)

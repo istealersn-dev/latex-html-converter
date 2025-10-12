@@ -23,7 +23,7 @@ from app.models.conversion import (
     ConversionStatus,
     PipelineStage,
 )
-from app.services.file_discovery import FileDiscoveryService, ProjectStructure
+from app.services.file_discovery import FileDiscoveryService, ProjectStructure, LatexDependencies
 from app.services.html_post import HTMLPostProcessingError, HTMLPostProcessor
 from app.services.latexml import LaTeXMLError, LaTeXMLService
 from app.services.package_manager import PackageManagerService
@@ -339,9 +339,24 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
             # Step 1: Discover and prepare all project files
             logger.info("Discovering project files...")
-            project_structure = self.file_discovery.extract_project_files(
-                job.input_file, job.output_dir
-            )
+            
+            # Check if input file is a ZIP file or already extracted
+            if job.input_file.suffix.lower() == '.zip':
+                # Input is a ZIP file, extract it
+                project_structure = self.file_discovery.extract_project_files(
+                    job.input_file, job.output_dir
+                )
+            else:
+                # Input is already extracted, create a minimal project structure
+                logger.info("Input file is already extracted, creating project structure...")
+                project_structure = ProjectStructure(
+                    main_tex_file=job.input_file,
+                    all_tex_files=[job.input_file],
+                    supporting_files={},
+                    dependencies=LatexDependencies(),
+                    project_dir=job.input_file.parent,
+                    extracted_files=[job.input_file]
+                )
             
             # Store project structure in job metadata
             job.metadata["project_structure"] = {
