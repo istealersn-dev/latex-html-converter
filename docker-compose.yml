@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  latex-converter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: latex-html-converter
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount source code for hot-reloading in development
+      - .:/app
+      # Persistent volumes for uploads and outputs
+      - uploads_data:/app/uploads
+      - outputs_data:/app/outputs
+      - logs_data:/app/logs
+    environment:
+      # Development environment variables
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+      # Tool paths (Docker TeXLive paths)
+      - TECTONIC_PATH=/usr/local/bin/tectonic
+      - LATEXML_PATH=/usr/bin/latexml
+      - DVISVGM_PATH=/usr/bin/dvisvgm
+      # File paths
+      - UPLOAD_DIR=/app/uploads
+      - OUTPUT_DIR=/app/outputs
+      # Server settings
+      - HOST=0.0.0.0
+      - PORT=8000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Enable interactive terminal for debugging
+    stdin_open: true
+    tty: true
+
+volumes:
+  uploads_data:
+    driver: local
+  outputs_data:
+    driver: local
+  logs_data:
+    driver: local
