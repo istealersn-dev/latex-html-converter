@@ -217,12 +217,30 @@ class HTMLPostProcessor:
                     tag.decompose()
     
     def _normalize_whitespace(self, soup: BeautifulSoup) -> None:
-        """Normalize whitespace in text content."""
+        """Normalize whitespace in text content while preserving meaningful formatting."""
         for text_node in soup.find_all(string=True):
             if isinstance(text_node, NavigableString):
-                # Normalize whitespace
-                normalized = re.sub(r'\s+', ' ', text_node.strip())
-                text_node.replace_with(normalized)
+                # Skip whitespace normalization in contexts where it's significant
+                parent = text_node.parent
+                if parent and parent.name in ['pre', 'code', 'textarea', 'script', 'style']:
+                    continue
+                
+                # Skip if this is whitespace between inline elements (preserves word separation)
+                if text_node.strip() == '' and parent and parent.name in ['p', 'div', 'span', 'em', 'strong', 'a']:
+                    # Only collapse multiple spaces/tabs to single space, don't strip
+                    normalized = re.sub(r'[ \t]+', ' ', text_node)
+                    if normalized != text_node:
+                        text_node.replace_with(normalized)
+                    continue
+                
+                # For other text nodes, normalize but preserve word boundaries
+                if text_node.strip():  # Only process non-empty text nodes
+                    # Collapse multiple whitespace to single space, but preserve leading/trailing if meaningful
+                    normalized = re.sub(r'[ \t\n\r]+', ' ', text_node)
+                    # Only strip if the original was mostly whitespace
+                    if len(text_node.strip()) / len(text_node) < 0.3:  # Less than 30% actual content
+                        normalized = normalized.strip()
+                    text_node.replace_with(normalized)
     
     def _validate_html_structure(self, soup: BeautifulSoup, results: Dict[str, Any]) -> None:
         """Validate HTML structure."""
@@ -407,14 +425,22 @@ class HTMLPostProcessor:
                 img['loading'] = 'lazy'
     
     def _remove_unnecessary_attributes(self, soup: BeautifulSoup) -> None:
-        """Remove unnecessary attributes."""
-        unnecessary_attrs = ['data-latexml', 'xmlns', 'xml:space']
+        """Remove unnecessary attributes while preserving namespace declarations."""
+        # Only remove LaTeXML-specific attributes, preserve XML namespaces
+        latexml_attrs = ['data-latexml']
         
         for tag in soup.find_all():
             if tag.attrs:
-                for attr in unnecessary_attrs:
+                # Remove LaTeXML-specific attributes
+                for attr in latexml_attrs:
                     if attr in tag.attrs:
                         del tag.attrs[attr]
+                
+                # Only remove xml:space if it's not in MathML/SVG context
+                if 'xml:space' in tag.attrs:
+                    # Check if this is a MathML or SVG element that needs xml:space
+                    if tag.name not in ['math', 'm:math', 'svg', 'g', 'path', 'circle', 'rect']:
+                        del tag.attrs['xml:space']
     
     def _write_html(self, soup: BeautifulSoup, output_file: Path) -> None:
         """Write HTML to file."""
