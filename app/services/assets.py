@@ -62,8 +62,15 @@ class AssetConversionService:
             pdf_service: PDF conversion service instance
             svg_optimizer: SVG optimization service instance
         """
-        self.tikz_service = tikz_service or TikZConversionService()
-        self.pdf_service = pdf_service or PDFConversionService()
+        self.tikz_service = tikz_service or TikZConversionService(
+            dvisvgm_path="/opt/homebrew/bin/dvisvgm",
+            tectonic_path="/opt/homebrew/bin/tectonic"
+        )
+        self.pdf_service = pdf_service or PDFConversionService(
+            gs_path="/opt/homebrew/bin/gs",
+            pdfinfo_path="/opt/homebrew/bin/pdfinfo",
+            pdftoppm_path="/opt/homebrew/bin/pdftoppm"
+        )
         self.svg_optimizer = svg_optimizer or SVGOptimizer()
 
         # Configuration

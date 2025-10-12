@@ -15,6 +15,7 @@ from loguru import logger
 from app.exceptions import BaseServiceError, ServiceFileError, ServiceTimeoutError
 from app.utils.fs import cleanup_directory, ensure_directory, get_file_info
 from app.utils.shell import run_command_safely
+from app.utils.svg_utils import calculate_optimization_ratio, optimize_svg
 
 
 class PDFConversionError(BaseServiceError):
@@ -48,9 +49,9 @@ class PDFConversionService:
 
     def __init__(
         self,
-        gs_path: str = "gs",
-        pdfinfo_path: str = "pdfinfo",
-        pdftoppm_path: str = "pdftoppm"
+        gs_path: str = "/opt/homebrew/bin/gs",
+        pdfinfo_path: str = "/opt/homebrew/bin/pdfinfo",
+        pdftoppm_path: str = "/opt/homebrew/bin/pdftoppm"
     ):
         """
         Initialize the PDF conversion service.
@@ -74,14 +75,14 @@ class PDFConversionService:
     def _verify_tool_installations(self) -> None:
         """Verify that required tools are installed and accessible."""
         tools = [
-            (self.gs_path, "ghostscript"),
-            (self.pdfinfo_path, "pdfinfo"),
-            (self.pdftoppm_path, "pdftoppm")
+            (self.gs_path, "ghostscript", "--version"),
+            (self.pdfinfo_path, "pdfinfo", "-v"),
+            (self.pdftoppm_path, "pdftoppm", "-v")
         ]
         
-        for tool_path, tool_name in tools:
+        for tool_path, tool_name, version_flag in tools:
             try:
-                result = run_command_safely([tool_path, "--version"], timeout=10)
+                result = run_command_safely([tool_path, version_flag], timeout=10)
                 if result.returncode != 0:
                     raise PDFConversionError(
                         f"{tool_name} not working properly: {result.stderr}",
@@ -399,29 +400,11 @@ class PDFConversionService:
 
     def _optimize_svg(self, svg_file: Path, options: Dict[str, Any]) -> Path:
         """Optimize the SVG file."""
-        try:
-            # For now, just return the original file
-            # TODO: Implement SVG optimization
-            logger.debug(f"SVG optimization placeholder: {svg_file}")
-            return svg_file
-            
-        except Exception as exc:
-            logger.warning(f"SVG optimization failed: {exc}")
-            return svg_file
+        return optimize_svg(svg_file, options)
 
     def _calculate_optimization_ratio(self, original_file: Path, optimized_file: Path) -> float:
         """Calculate the optimization ratio."""
-        try:
-            original_size = original_file.stat().st_size
-            optimized_size = optimized_file.stat().st_size
-            
-            if original_size == 0:
-                return 1.0
-            
-            return optimized_size / original_size
-            
-        except Exception:
-            return 1.0
+        return calculate_optimization_ratio(original_file, optimized_file)
 
     def batch_convert_pdf(
         self,

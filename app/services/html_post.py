@@ -5,25 +5,27 @@ This module provides HTML post-processing functionality to clean, validate,
 and enhance LaTeXML-generated HTML output.
 """
 
-import logging
 import re
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup, NavigableString
-from lxml import etree, html
+from loguru import logger
 
 try:
+    from lxml import etree, html
     from lxml.html.clean import Cleaner
+    from lxml.etree import XMLSyntaxError
 except ImportError:
     # Fallback for systems without lxml
+    etree = None
+    html = None
     Cleaner = None
+    XMLSyntaxError = Exception
 
 from app.services.assets import AssetConversionService
 from app.services.asset_validator import AssetValidator
-
-logger = logging.getLogger(__name__)
 
 
 class HTMLPostProcessingError(Exception):
@@ -316,8 +318,11 @@ class HTMLPostProcessor:
     def _enhance_html(self, soup: BeautifulSoup, results: dict[str, Any]) -> BeautifulSoup:
         """Enhance HTML with additional features."""
         try:
+            # Process mathematical expressions for MathJax compatibility
+            self._process_math_expressions(soup)
+            
             # Add MathJax support if math is present
-            if soup.find(['math', 'm:math']):
+            if soup.find(['math', 'm:math']) or soup.find_all(['span', 'div'], class_=['math', 'math-display']):
                 self._add_mathjax_support(soup)
 
             # Enhance links
@@ -343,7 +348,7 @@ class HTMLPostProcessor:
         head = soup.find('head')
         if head:
             # Add MathJax configuration
-            mathjax_config = soup.new_tag('script', type='text/x-mathjax-config')
+            mathjax_config = soup.new_tag('script', attrs={'type': 'text/x-mathjax-config'})
             mathjax_config.string = '''
             MathJax.Hub.Config({
                 tex2jax: {
@@ -357,9 +362,87 @@ class HTMLPostProcessor:
             head.append(mathjax_config)
 
             # Add MathJax script
-            mathjax_script = soup.new_tag('script',
-                                        src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?config=TeX-AMS-MML_HTMLorMML')
+            mathjax_script = soup.new_tag('script', attrs={'src': 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.7/MathJax.js?config=TeX-AMS-MML_HTMLorMML'})
             head.append(mathjax_script)
+
+    def _process_math_expressions(self, soup: BeautifulSoup) -> None:
+        """Process mathematical expressions for MathJax compatibility."""
+        try:
+            self._process_inline_math(soup)
+            self._process_display_math(soup)
+            logger.info("Mathematical expressions processed for MathJax compatibility")
+            
+        except Exception as exc:
+            logger.error("Error processing mathematical expressions: %s", exc)
+
+    def _process_inline_math(self, soup: BeautifulSoup) -> None:
+        """Process inline math expressions ($...$)."""
+        for text_node in soup.find_all(string=True):
+            if not isinstance(text_node, NavigableString):
+                continue
+                
+            text = str(text_node)
+            if '$' not in text:
+                continue
+                
+            parts = text.split('$')
+            if len(parts) <= 1:
+                continue
+                
+            new_content = self._build_inline_math_content(soup, parts)
+            if len(new_content) > 1:
+                text_node.replace_with(*new_content)
+
+    def _build_inline_math_content(self, soup: BeautifulSoup, parts: list) -> list:
+        """Build content for inline math expressions."""
+        new_content = []
+        for i, part in enumerate(parts):
+            if i % 2 == 0:  # Even indices are regular text
+                new_content.append(part)
+            else:  # Odd indices are math expressions
+                if part.strip():  # Only process non-empty math
+                    math_span = soup.new_tag('span', attrs={'class': 'math'})
+                    math_span.string = f'${part}$'
+                    new_content.append(math_span)
+        return new_content
+
+    def _process_display_math(self, soup: BeautifulSoup) -> None:
+        """Process display math expressions ($$...$$)."""
+        for p in soup.find_all('p'):
+            text = p.get_text()
+            if '$$' not in text:
+                continue
+                
+            parts = text.split('$$')
+            if len(parts) <= 1:
+                continue
+                
+            new_content = self._build_display_math_content(soup, parts)
+            if len(new_content) > 1:
+                self._replace_paragraph_content(p, new_content)
+
+    def _build_display_math_content(self, soup: BeautifulSoup, parts: list) -> list:
+        """Build content for display math expressions."""
+        new_content = []
+        for i, part in enumerate(parts):
+            if i % 2 == 0:  # Even indices are regular text
+                if part.strip():
+                    new_content.append(part)
+            else:  # Odd indices are display math
+                if part.strip():  # Only process non-empty math
+                    math_div = soup.new_tag('div', attrs={'class': 'math-display'})
+                    math_div.string = f'$${part}$$'
+                    new_content.append(math_div)
+        return new_content
+
+    def _replace_paragraph_content(self, p, new_content: list) -> None:
+        """Replace paragraph content with new content."""
+        p.clear()
+        for content in new_content:
+            if isinstance(content, str):
+                p.append(content)
+            else:
+                p.append(content)
 
     def _enhance_links(self, soup: BeautifulSoup) -> None:
         """Enhance links with proper attributes."""
@@ -387,14 +470,14 @@ class HTMLPostProcessor:
         """Add responsive meta tag."""
         head = soup.find('head')
         if head and not head.find('meta', attrs={'name': 'viewport'}):
-            viewport_meta = soup.new_tag('meta', name='viewport', content='width=device-width, initial-scale=1.0')
+            viewport_meta = soup.new_tag('meta', attrs={'name': 'viewport', 'content': 'width=device-width, initial-scale=1.0'})
             head.append(viewport_meta)
 
     def _add_enhancement_css(self, soup: BeautifulSoup) -> None:
         """Add CSS for better styling."""
         head = soup.find('head')
         if head:
-            style = soup.new_tag('style', type='text/css')
+            style = soup.new_tag('style', attrs={'type': 'text/css'})
             style.string = '''
             body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
             .math { font-family: "Times New Roman", serif; }
@@ -710,7 +793,7 @@ class HTMLPostProcessor:
                 html.fromstring(html_content)
                 is_valid = True
                 validation_errors = []
-            except etree.XMLSyntaxError as exc:
+            except XMLSyntaxError as exc:
                 is_valid = False
                 validation_errors = [str(exc)]
 

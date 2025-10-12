@@ -15,6 +15,7 @@ from loguru import logger
 from app.exceptions import BaseServiceError, ServiceFileError, ServiceTimeoutError
 from app.utils.fs import cleanup_directory, ensure_directory, get_file_info
 from app.utils.shell import run_command_safely
+from app.utils.svg_utils import calculate_optimization_ratio, optimize_svg
 
 
 class TikZConversionError(BaseServiceError):
@@ -46,14 +47,16 @@ class TikZConversionFileError(TikZConversionError, ServiceFileError):
 class TikZConversionService:
     """Service for converting TikZ diagrams to SVG format."""
 
-    def __init__(self, dvisvgm_path: str = "dvisvgm"):
+    def __init__(self, dvisvgm_path: str = "dvisvgm", tectonic_path: str = "tectonic"):
         """
         Initialize the TikZ conversion service.
 
         Args:
             dvisvgm_path: Path to dvisvgm executable
+            tectonic_path: Path to tectonic executable
         """
         self.dvisvgm_path = dvisvgm_path
+        self.tectonic_path = tectonic_path
         self.default_timeout = 300  # 5 minutes
         self.max_file_size = 50 * 1024 * 1024  # 50MB
 
@@ -115,11 +118,11 @@ class TikZConversionService:
             with tempfile.TemporaryDirectory() as temp_dir:
                 temp_path = Path(temp_dir)
                 
-                # Step 1: Compile TikZ to DVI using tectonic
-                dvi_file = self._compile_tikz_to_dvi(tikz_file, temp_path, options)
+                # Step 1: Compile TikZ to PDF using tectonic
+                pdf_file = self._compile_tikz_to_pdf(tikz_file, temp_path, options)
                 
-                # Step 2: Convert DVI to SVG using dvisvgm
-                svg_file = self._convert_dvi_to_svg(dvi_file, output_dir, options)
+                # Step 2: Convert PDF to SVG using dvisvgm
+                svg_file = self._convert_pdf_to_svg(pdf_file, output_dir, options)
                 
                 # Step 3: Optimize SVG
                 optimized_svg = self._optimize_svg(svg_file, options)
@@ -172,22 +175,23 @@ class TikZConversionService:
         except Exception as exc:
             raise TikZConversionFileError(f"Cannot read TikZ file: {exc}", str(tikz_file))
 
-    def _compile_tikz_to_dvi(
+    def _compile_tikz_to_pdf(
         self,
         tikz_file: Path,
         temp_dir: Path,
         options: Dict[str, Any]
     ) -> Path:
-        """Compile TikZ file to DVI format using tectonic."""
+        """Compile TikZ file to PDF format using tectonic."""
         try:
             # Create a minimal LaTeX document wrapper if needed
             latex_file = self._create_latex_wrapper(tikz_file, temp_dir)
             
-            # Compile using tectonic
-            dvi_file = temp_dir / f"{tikz_file.stem}.dvi"
+            # Compile using tectonic (creates PDF by default)
+            # Tectonic creates PDF with the wrapper filename
+            pdf_file = temp_dir / f"{latex_file.stem}.pdf"
             
             cmd = [
-                "tectonic",
+                self.tectonic_path,
                 "--untrusted",
                 "--keep-logs",
                 "--keep-intermediates",
@@ -209,14 +213,15 @@ class TikZConversionService:
                     {"stdout": result.stdout, "stderr": result.stderr}
                 )
             
-            if not dvi_file.exists():
+            # Check for PDF output (Tectonic creates PDF by default)
+            if pdf_file.exists():
+                logger.info(f"TikZ compiled to PDF: {pdf_file}")
+                return pdf_file
+            else:
                 raise TikZConversionError(
-                    "DVI file not created after compilation",
+                    "PDF file not created after compilation",
                     str(tikz_file)
                 )
-            
-            logger.info(f"TikZ compiled to DVI: {dvi_file}")
-            return dvi_file
             
         except Exception as exc:
             if isinstance(exc, TikZConversionError):
@@ -230,10 +235,19 @@ class TikZConversionService:
             with open(tikz_file, encoding="utf-8") as f:
                 tikz_content = f.read()
             
-            # Create a minimal LaTeX document
-            latex_content = f"""\\documentclass{{standalone}}
+            # Check if the file already has a document structure
+            if "\\documentclass" in tikz_content and "\\begin{document}" in tikz_content:
+                # File already has document structure, use as-is
+                latex_content = tikz_content
+            else:
+                # Create a minimal LaTeX document wrapper with all necessary packages
+                latex_content = f"""\\documentclass{{standalone}}
 \\usepackage{{tikz}}
 \\usepackage{{pgfplots}}
+\\usepackage{{pgfplotstable}}
+\\usepackage{{amsmath}}
+\\usepackage{{amsfonts}}
+\\usepackage{{amssymb}}
 \\pgfplotsset{{compat=1.18}}
 
 \\begin{{document}}
@@ -251,26 +265,29 @@ class TikZConversionService:
         except Exception as exc:
             raise TikZConversionError(f"Failed to create LaTeX wrapper: {exc}", str(tikz_file))
 
-    def _convert_dvi_to_svg(
+    def _convert_pdf_to_svg(
         self,
-        dvi_file: Path,
+        pdf_file: Path,
         output_dir: Path,
         options: Dict[str, Any]
     ) -> Path:
-        """Convert DVI file to SVG using dvisvgm."""
+        """Convert PDF file to SVG using dvisvgm."""
         try:
             # Generate output SVG filename
-            svg_file = output_dir / f"{dvi_file.stem}.svg"
+            svg_file = output_dir / f"{pdf_file.stem}.svg"
             
-            # Build dvisvgm command
+            # Build dvisvgm command for PDF files
             cmd = [
                 self.dvisvgm_path,
+                "--pdf",        # Tell dvisvgm this is a PDF file
                 "--output=" + str(svg_file),
-                "--no-fonts",  # Don't embed fonts
-                "--exact",      # Exact bounding box
+                "--no-fonts",   # Don't embed fonts
+                "--exact",       # Exact bounding box
                 "--zoom=1.0",   # No zoom
-                str(dvi_file)
+                str(pdf_file)
             ]
+            
+            logger.info(f"Converting PDF to SVG: {pdf_file}")
             
             # Add additional options
             if options.get("no_fonts", True):
@@ -283,21 +300,21 @@ class TikZConversionService:
             
             result = run_command_safely(
                 cmd,
-                cwd=dvi_file.parent,
+                cwd=pdf_file.parent,
                 timeout=options.get("timeout", self.default_timeout)
             )
             
             if result.returncode != 0:
                 raise TikZConversionError(
                     f"dvisvgm conversion failed: {result.stderr}",
-                    str(dvi_file),
+                    str(pdf_file),
                     {"stdout": result.stdout, "stderr": result.stderr}
                 )
             
             if not svg_file.exists():
                 raise TikZConversionError(
                     "SVG file not created after conversion",
-                    str(dvi_file)
+                    str(pdf_file)
                 )
             
             logger.info(f"DVI converted to SVG: {svg_file}")
@@ -306,33 +323,15 @@ class TikZConversionService:
         except Exception as exc:
             if isinstance(exc, TikZConversionError):
                 raise
-            raise TikZConversionError(f"DVI to SVG conversion failed: {exc}", str(dvi_file))
+            raise TikZConversionError(f"DVI to SVG conversion failed: {exc}", str(pdf_file))
 
     def _optimize_svg(self, svg_file: Path, options: Dict[str, Any]) -> Path:
         """Optimize the SVG file."""
-        try:
-            # For now, just return the original file
-            # TODO: Implement SVG optimization
-            logger.debug(f"SVG optimization placeholder: {svg_file}")
-            return svg_file
-            
-        except Exception as exc:
-            logger.warning(f"SVG optimization failed: {exc}")
-            return svg_file
+        return optimize_svg(svg_file, options)
 
     def _calculate_optimization_ratio(self, original_file: Path, optimized_file: Path) -> float:
         """Calculate the optimization ratio."""
-        try:
-            original_size = original_file.stat().st_size
-            optimized_size = optimized_file.stat().st_size
-            
-            if original_size == 0:
-                return 1.0
-            
-            return optimized_size / original_size
-            
-        except Exception:
-            return 1.0
+        return calculate_optimization_ratio(original_file, optimized_file)
 
     def batch_convert_tikz(
         self,

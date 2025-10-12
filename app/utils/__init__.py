@@ -20,6 +20,10 @@ from .shell import (
     run_command_safely,
     run_command_with_retry,
 )
+from .svg_utils import (
+    calculate_optimization_ratio,
+    optimize_svg,
+)
 from .validation import ValidationUtils
 
 __all__ = [
@@ -27,5 +31,6 @@ __all__ = [
     "get_command_version", "CommandResult",
     "ensure_directory", "cleanup_directory", "safe_copy_file", "safe_move_file",
     "get_file_info", "find_files", "create_temp_directory",
+    "optimize_svg", "calculate_optimization_ratio",
     "ValidationUtils"
 ]
