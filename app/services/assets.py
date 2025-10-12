@@ -62,14 +62,15 @@ class AssetConversionService:
             pdf_service: PDF conversion service instance
             svg_optimizer: SVG optimization service instance
         """
+        from app.config import settings
         self.tikz_service = tikz_service or TikZConversionService(
-            dvisvgm_path="/opt/homebrew/bin/dvisvgm",
-            tectonic_path="/opt/homebrew/bin/tectonic"
+            dvisvgm_path=settings.DVISVGM_PATH,
+            tectonic_path="/usr/bin/pdflatex"
         )
         self.pdf_service = pdf_service or PDFConversionService(
-            gs_path="/opt/homebrew/bin/gs",
-            pdfinfo_path="/opt/homebrew/bin/pdfinfo",
-            pdftoppm_path="/opt/homebrew/bin/pdftoppm"
+            gs_path="/usr/bin/gs",  # Docker path for ghostscript
+            pdfinfo_path="/usr/bin/pdfinfo",  # Docker path for pdfinfo
+            pdftoppm_path="/usr/bin/pdftoppm"  # Docker path for pdftoppm
         )
         self.svg_optimizer = svg_optimizer or SVGOptimizer()
 
