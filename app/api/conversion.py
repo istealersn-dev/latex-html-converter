@@ -7,6 +7,7 @@ This module provides endpoints for file upload and conversion processing.
 import json
 import os
 import shutil
+import sys
 import tempfile
 import threading
 import time
@@ -19,7 +20,12 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Uploa
 from fastapi.responses import FileResponse
 from loguru import logger
 
-from app.config import settings
+# Add the parent directory to the path to import from app.config module
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Import settings from the config module directly
+from config import settings
+
 from app.models.request import ConversionOptions
 from app.models.response import ConversionResponse, ConversionStatus, ConversionStatusResponse
 
