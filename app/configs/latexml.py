@@ -15,7 +15,7 @@ class LaTeXMLSettings(BaseSettings):
     """LaTeXML configuration settings."""
 
     # LaTeXML executable path
-    latexml_path: str = Field(default="/opt/homebrew/bin/latexmlc", description="Path to LaTeXML executable")
+    latexml_path: str = Field(default="/usr/bin/latexmlc", description="Path to LaTeXML executable (Docker default, override with env var)")
 
     # Output format settings
     output_format: str = Field(default="html", description="Output format (html, xml)")
