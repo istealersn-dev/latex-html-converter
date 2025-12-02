@@ -8,7 +8,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ConversionStatus(str, Enum):
@@ -61,6 +61,7 @@ class ConversionStatusResponse(BaseModel):
     """
 
     conversion_id: str = Field(..., description="Unique conversion identifier")
+    job_id: str = Field(..., description="Job identifier (same as conversion_id)")
     status: ConversionStatus = Field(..., description="Current conversion status")
     progress: int = Field(..., description="Progress percentage (0-100)")
     message: str = Field(..., description="Status message")
@@ -72,6 +73,13 @@ class ConversionStatusResponse(BaseModel):
 
     # Error information
     error_message: str | None = Field(default=None)
+    
+    @model_validator(mode='after')
+    def set_job_id(self) -> 'ConversionStatusResponse':
+        """Set job_id to match conversion_id if not explicitly set."""
+        if not hasattr(self, 'job_id') or self.job_id != self.conversion_id:
+            self.job_id = self.conversion_id
+        return self
 
     class Config:
         """Pydantic configuration."""

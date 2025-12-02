@@ -257,7 +257,8 @@ async def convert_latex_to_html(
                 conversion_job_id = orchestrator.start_conversion(
                     input_file=main_tex_file,
                     output_dir=output_dir,
-                    options=conversion_options
+                    options=conversion_options,
+                    job_id=job_id  # Use the same job_id for folder naming and conversion tracking
                 )
 
                 # Store the directory paths in conversion storage for later retrieval
@@ -360,6 +361,7 @@ async def get_conversion_status(conversion_id: str) -> ConversionStatusResponse:
 
         return ConversionStatusResponse(
             conversion_id=conversion_id,
+            job_id=conversion_id,  # job_id is the same as conversion_id
             status=api_status,
             progress=int(progress_percentage),
             message=message,
