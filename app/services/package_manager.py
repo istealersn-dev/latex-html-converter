@@ -139,6 +139,12 @@ class PackageManagerService:
         Returns:
             Dictionary mapping package names to availability status
         """
+        # Check if tlmgr is available first
+        if not self._is_tlmgr_available():
+            self.logger.debug("tlmgr not available, skipping package availability check")
+            # Return False for all packages if tlmgr is not available
+            return {package: False for package in packages}
+        
         self.logger.info(f"Checking availability of {len(packages)} packages")
         
         availability = {}
@@ -152,8 +158,11 @@ class PackageManagerService:
                 )
                 availability[package] = result.returncode == 0
                 
+            except FileNotFoundError:
+                # tlmgr not found - silently mark as unavailable
+                availability[package] = False
             except Exception as e:
-                self.logger.warning(f"Error checking package {package}: {e}")
+                self.logger.debug(f"Error checking package {package}: {e}")
                 availability[package] = False
         
         available_count = sum(1 for available in availability.values() if available)
@@ -171,7 +180,19 @@ class PackageManagerService:
         Returns:
             InstallResult with installation status
         """
-        self.logger.info(f"Installing {len(packages)} packages")
+        # Check tool availability first
+        tlmgr_available = self._is_tlmgr_available()
+        apt_available = self._is_apt_available()
+        
+        if not tlmgr_available and not apt_available:
+            self.logger.debug("Package installation tools (tlmgr/apt) not available - skipping package installation")
+            # Return result indicating packages couldn't be installed (but this is expected)
+            result = InstallResult(success=False)
+            result.failed_packages = packages
+            result.warnings.append("Package installation tools not available on this system")
+            return result
+        
+        self.logger.info(f"Attempting to install {len(packages)} packages")
         
         result = InstallResult(success=True)
         
@@ -193,19 +214,41 @@ class PackageManagerService:
                     else:
                         result.failed_packages.append(package)
                         result.errors.append(f"Failed to install {package}")
-                        self.logger.error(f"Failed to install {package}")
+                        # Only log as error if tools are available but installation failed
+                        if tlmgr_available or apt_available:
+                            self.logger.debug(f"Could not install {package} (tools available but installation failed)")
+                        else:
+                            self.logger.debug(f"Could not install {package} (tools not available)")
                 
             except Exception as e:
                 result.failed_packages.append(package)
                 result.errors.append(f"Error installing {package}: {e}")
-                self.logger.error(f"Error installing {package}: {e}")
+                # Only log as error if it's unexpected
+                if tlmgr_available or apt_available:
+                    self.logger.debug(f"Error installing {package}: {e}")
         
         result.success = len(result.failed_packages) == 0
         
         if result.failed_packages:
-            self.logger.warning(f"Failed to install {len(result.failed_packages)} packages: {result.failed_packages}")
+            if tlmgr_available or apt_available:
+                self.logger.debug(f"Could not install {len(result.failed_packages)} packages: {result.failed_packages}")
+            else:
+                self.logger.debug(f"Package installation skipped - tools not available ({len(result.failed_packages)} packages)")
         
         return result
+
+    def _is_tlmgr_available(self) -> bool:
+        """
+        Check if tlmgr is available on the system.
+        
+        Returns:
+            True if tlmgr is available, False otherwise
+        """
+        try:
+            result = run_command_safely(['tlmgr', '--version'], timeout=5)
+            return result.returncode == 0
+        except (FileNotFoundError, Exception):
+            return False
 
     def _install_with_tlmgr(self, package: str) -> bool:
         """
@@ -217,6 +260,9 @@ class PackageManagerService:
         Returns:
             True if installation successful, False otherwise
         """
+        if not self._is_tlmgr_available():
+            return False
+            
         try:
             # First try to install the package directly
             result = run_command_safely(
@@ -245,8 +291,24 @@ class PackageManagerService:
             
             return False
             
+        except FileNotFoundError:
+            # tlmgr not found - return False silently
+            return False
         except Exception as e:
-            self.logger.warning(f"tlmgr installation failed for {package}: {e}")
+            self.logger.debug(f"tlmgr installation failed for {package}: {e}")
+            return False
+
+    def _is_apt_available(self) -> bool:
+        """
+        Check if apt-get is available on the system.
+        
+        Returns:
+            True if apt-get is available, False otherwise
+        """
+        try:
+            result = run_command_safely(['apt-get', '--version'], timeout=5)
+            return result.returncode == 0
+        except (FileNotFoundError, Exception):
             return False
 
     def _install_with_apt(self, package: str) -> bool:
@@ -259,6 +321,9 @@ class PackageManagerService:
         Returns:
             True if installation successful, False otherwise
         """
+        if not self._is_apt_available():
+            return False
+            
         try:
             # Map LaTeX package to apt package
             apt_package = self.package_mappings.get(package, 'texlive-latex-extra')
@@ -278,8 +343,11 @@ class PackageManagerService:
             
             return install_result.returncode == 0
             
+        except FileNotFoundError:
+            # apt-get not found - return False silently
+            return False
         except Exception as e:
-            self.logger.warning(f"apt installation failed for {package}: {e}")
+            self.logger.debug(f"apt installation failed for {package}: {e}")
             return False
 
     def _extract_collection_name(self, tlmgr_output: str) -> Optional[str]:

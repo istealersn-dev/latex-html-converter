@@ -383,14 +383,15 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
                         missing_packages.append(package)
                 
                 if missing_packages:
-                    logger.info(f"Installing {len(missing_packages)} missing packages: {missing_packages}")
+                    logger.info(f"Attempting to install {len(missing_packages)} missing packages: {missing_packages}")
                     install_result = self.package_manager.install_missing_packages(missing_packages)
                     
-                    if not install_result.success:
-                        logger.warning(f"Package installation had issues: {install_result.failed_packages}")
+                    if install_result.installed_packages:
+                        logger.info(f"Successfully installed {len(install_result.installed_packages)} packages")
+                    
+                    if install_result.failed_packages:
+                        logger.debug(f"Could not install {len(install_result.failed_packages)} packages: {install_result.failed_packages} (may not be critical)")
                         # Continue anyway - some packages might not be critical
-                    else:
-                        logger.info("All packages installed successfully")
 
             # Step 4: Compile with Tectonic
             logger.info("Starting Tectonic compilation...")

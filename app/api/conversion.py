@@ -9,7 +9,6 @@ import os
 import shutil
 import tempfile
 import threading
-import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -24,8 +23,6 @@ from app.models.conversion import ConversionOptions
 from app.models.conversion import ConversionStatus as ConversionStatusEnum
 from app.models.response import ConversionResponse, ConversionStatus, ConversionStatusResponse
 from app.services.orchestrator import OrchestrationError, ResourceLimitError, get_orchestrator
-from app.services.latexml import LaTeXMLService
-from app.services.html_post import HTMLPostProcessor
 
 router = APIRouter()
 
@@ -95,69 +92,37 @@ def _safe_update_conversion(conversion_id: str, updates: dict[str, Any]) -> bool
         return False
 
 
-def _schedule_delayed_cleanup(conversion_id: str, cleanup_time: datetime) -> None:
-    """
-    Schedule delayed cleanup for a conversion using threading.
-
-    Args:
-        conversion_id: Conversion ID to clean up
-        cleanup_time: When to perform cleanup
-    """
-    def _delayed_cleanup() -> None:
-        """Thread function for delayed cleanup."""
-        try:
-            # Wait until cleanup time
-            now = datetime.utcnow()
-            if cleanup_time > now:
-                wait_seconds = (cleanup_time - now).total_seconds()
-                time.sleep(wait_seconds)
-
-            # Check if conversion still exists and hasn't been accessed recently
-            conversion_data = _safe_get_conversion(conversion_id)
-            if conversion_data and not conversion_data.get("cleanup_scheduled", False):
-                # Mark as scheduled to prevent multiple cleanups
-                if _safe_update_conversion(conversion_id, {"cleanup_scheduled": True}):
-                    # Clean up the files
-                    temp_dir = Path(conversion_data["temp_dir"])
-                    _cleanup_temp_directory(temp_dir)
-
-                    # Remove from storage
-                    _safe_remove_conversion(conversion_id)
-                    logger.info(f"Scheduled cleanup completed for conversion {conversion_id}")
-        except Exception as exc:
-            logger.error(f"Cleanup thread failed for conversion {conversion_id}: {exc}")
-
-    # Start cleanup thread
-    cleanup_thread = threading.Thread(
-        target=_delayed_cleanup,
-        name=f"cleanup-{conversion_id}",
-        daemon=True  # Don't prevent app shutdown
-    )
-    cleanup_thread.start()
-    logger.info(f"Started cleanup thread for conversion {conversion_id}")
-
-
-def _create_result_zip(temp_dir: Path, output_zip: Path) -> None:
+def _create_result_zip(output_dir: Path, output_zip: Path) -> None:
     """
     Create a ZIP file containing the conversion results.
 
     Args:
-        temp_dir: Temporary directory containing results
+        output_dir: Output directory containing results
         output_zip: Path for the output ZIP file
     """
     import zipfile
 
     try:
         with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            # Add HTML file
-            html_file = temp_dir / "output" / "index.html"
+            # Add HTML file - check for final.html first, then look in latexml subdirectory
+            html_file = output_dir / "final.html"
+            if not html_file.exists():
+                # Check in latexml subdirectory
+                latexml_html = output_dir / "latexml" / "main.html"
+                if latexml_html.exists():
+                    html_file = latexml_html
+            
             if html_file.exists():
-                zipf.write(html_file, "index.html")
+                zipf.write(html_file, html_file.name)
 
-            # Add assets
-            output_dir = temp_dir / "output"
-            for asset_file in output_dir.glob("*.svg"):
-                zipf.write(asset_file, asset_file.name)
+            # Add assets from output directory and subdirectories
+            for asset_file in output_dir.rglob("*.svg"):
+                if asset_file != output_zip:  # Don't include the zip file itself
+                    zipf.write(asset_file, asset_file.relative_to(output_dir))
+            
+            for asset_file in output_dir.rglob("*.png"):
+                if asset_file != output_zip:
+                    zipf.write(asset_file, asset_file.relative_to(output_dir))
 
         logger.info(f"Created result ZIP: {output_zip}")
     except Exception as exc:
@@ -369,6 +334,12 @@ async def get_conversion_status(conversion_id: str) -> ConversionStatusResponse:
 
         # Get progress information
         progress = orchestrator.get_job_progress(conversion_id)
+        
+        # Get job details for timestamps
+        job_result = orchestrator.get_job_result(conversion_id)
+        created_at = datetime.utcnow()
+        if job_result:
+            created_at = job_result.created_at
 
         # Map orchestrator status to API status
         status_mapping = {
@@ -381,14 +352,20 @@ async def get_conversion_status(conversion_id: str) -> ConversionStatusResponse:
         api_status = status_mapping.get(status, ConversionStatus.PENDING)
         progress_percentage = progress.progress_percentage if progress else 0.0
         message = progress.message if progress and progress.message else f"Status: {status.value}"
+        
+        # Get error message if failed
+        error_message = None
+        if status == ConversionStatusEnum.FAILED and job_result and job_result.errors:
+            error_message = "; ".join(job_result.errors)
 
         return ConversionStatusResponse(
             conversion_id=conversion_id,
             status=api_status,
             progress=int(progress_percentage),
             message=message,
-            created_at=datetime.utcnow(),  # TODO: Get actual creation time from job
-            updated_at=datetime.utcnow()
+            created_at=created_at,
+            updated_at=datetime.utcnow(),
+            error_message=error_message
         )
 
     except HTTPException:
@@ -396,6 +373,131 @@ async def get_conversion_status(conversion_id: str) -> ConversionStatusResponse:
     except Exception as exc:
         logger.error(f"Status check failed for {conversion_id}: {exc}")
         raise HTTPException(status_code=500, detail="Status check failed")
+
+
+@router.get("/convert/{conversion_id}/result", response_model=ConversionResponse)
+async def get_conversion_result(conversion_id: str) -> ConversionResponse:
+    """
+    Get the full conversion result including HTML file and assets.
+
+    Args:
+        conversion_id: Unique conversion identifier
+
+    Returns:
+        ConversionResponse: Full conversion result with HTML file and assets
+    """
+    try:
+        orchestrator = get_orchestrator()
+
+        # Get job status first
+        status = orchestrator.get_job_status(conversion_id)
+        if not status:
+            raise HTTPException(status_code=404, detail="Conversion not found")
+
+        # Get conversion result from orchestrator
+        result = orchestrator.get_job_result(conversion_id)
+        
+        # Get conversion data from storage for directory paths
+        conversion_data = _safe_get_conversion(conversion_id)
+        output_dir = None
+        if conversion_data and "output_dir" in conversion_data:
+            output_dir = Path(conversion_data["output_dir"])
+
+        # If conversion is completed, get the actual files
+        html_file_path = ""
+        assets_list = []
+        report_data = {
+            "score": 0.0,
+            "missing_macros": [],
+            "packages_used": [],
+            "conversion_time": 0.0,
+            "timestamp": datetime.utcnow().isoformat(),
+            "options": {}
+        }
+
+        if status == ConversionStatusEnum.COMPLETED and result:
+            # Get HTML file path - use getattr to avoid type checker issues with Pydantic
+            main_html = getattr(result, 'main_html_file', None)
+            if main_html is not None and isinstance(main_html, Path) and main_html.exists():
+                html_file_path = str(main_html)
+            elif output_dir:
+                # Fallback: look for final.html in output directory
+                final_html = output_dir / "final.html"
+                if final_html.exists():
+                    html_file_path = str(final_html)
+
+            # Get assets
+            if result.assets:
+                assets_list = [str(asset) for asset in result.assets if asset.exists()]
+            elif output_dir:
+                # Fallback: find assets in output directory
+                assets_list = [
+                    str(f) for f in 
+                    list(output_dir.glob("*.svg")) + list(output_dir.glob("*.png")) + list(output_dir.glob("*.jpg"))
+                ]
+
+            # Build report from result - use getattr to avoid type checker issues with Pydantic
+            metadata_dict = getattr(result, 'metadata', {})
+            if not isinstance(metadata_dict, dict):
+                metadata_dict = {}
+            completed_at_dt = getattr(result, 'completed_at', None)
+            if not isinstance(completed_at_dt, datetime):
+                completed_at_dt = None
+            
+            report_data = {
+                "score": result.quality_score or 0.0,
+                "missing_macros": result.errors or [],
+                "packages_used": metadata_dict.get("packages_used", []),
+                "conversion_time": result.total_duration_seconds or 0.0,
+                "timestamp": completed_at_dt.isoformat() if completed_at_dt else datetime.utcnow().isoformat(),
+                "options": metadata_dict.get("options", {}),
+                "warnings": result.warnings or [],
+                "stages_completed": result.stages_completed or []
+            }
+
+        # Map orchestrator status to API status
+        status_mapping = {
+            ConversionStatusEnum.PENDING: ConversionStatus.PENDING,
+            ConversionStatusEnum.RUNNING: ConversionStatus.PROCESSING,
+            ConversionStatusEnum.COMPLETED: ConversionStatus.COMPLETED,
+            ConversionStatusEnum.FAILED: ConversionStatus.FAILED,
+            ConversionStatusEnum.CANCELLED: ConversionStatus.CANCELLED,
+        }
+        api_status = status_mapping.get(status, ConversionStatus.PENDING)
+
+        # Get creation and completion times
+        created_at = datetime.utcnow()
+        completed_at = None
+        error_message = None
+
+        if result:
+            created_at = getattr(result, 'created_at', datetime.utcnow())
+            if not isinstance(created_at, datetime):
+                created_at = datetime.utcnow()
+            completed_at = getattr(result, 'completed_at', None)
+            if not isinstance(completed_at, datetime) and completed_at is not None:
+                completed_at = None
+            if status == ConversionStatusEnum.FAILED:
+                errors = getattr(result, 'errors', [])
+                if errors:
+                    error_message = "; ".join(errors)
+
+        return ConversionResponse(
+            conversion_id=conversion_id,
+            status=api_status,
+            html_file=html_file_path,
+            assets=assets_list,
+            report=report_data,
+            created_at=created_at,
+            completed_at=completed_at,
+            error_message=error_message
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Failed to get conversion result for {conversion_id}: {exc}")
+        raise HTTPException(status_code=500, detail=f"Failed to get conversion result: {str(exc)}")
 
 
 @router.get("/convert/{conversion_id}/download")
@@ -415,17 +517,23 @@ async def download_conversion_result(conversion_id: str) -> FileResponse:
         if not conversion_data:
             raise HTTPException(status_code=404, detail="Conversion not found")
 
-        # Check if files still exist
-        temp_dir = Path(conversion_data["temp_dir"])
-        if not temp_dir.exists():
+        # Get output directory from storage
+        output_dir = None
+        if "output_dir" in conversion_data:
+            output_dir = Path(conversion_data["output_dir"])
+        elif "temp_dir" in conversion_data:
+            # Fallback for old format
+            output_dir = Path(conversion_data["temp_dir"])
+
+        if not output_dir or not output_dir.exists():
             raise HTTPException(
                 status_code=410,
                 detail="Conversion files have been cleaned up"
             )
 
         # Create a ZIP file with the conversion results
-        output_zip = temp_dir / f"{conversion_id}_result.zip"
-        _create_result_zip(temp_dir, output_zip)
+        output_zip = output_dir / f"{conversion_id}_result.zip"
+        _create_result_zip(output_dir, output_zip)
 
         if not output_zip.exists():
             raise HTTPException(
@@ -586,337 +694,3 @@ def _find_main_tex_file(extracted_dir: Path) -> Path | None:
         return tex_file
 
     return None
-
-
-def _create_mock_html(filename: str) -> str:
-    """
-    Create mock HTML content.
-
-    Args:
-        filename: Original filename
-
-    Returns:
-        str: Mock HTML content
-    """
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Converted from {filename}</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        .header {{ color: #333; border-bottom: 2px solid #eee; padding-bottom: 10px; }}
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>LaTeX to HTML5 Conversion</h1>
-        <p>Converted from: {filename}</p>
-    </div>
-    <div class="content">
-        <h2>Sample Content</h2>
-        <p>This is a mock conversion result. The actual conversion logic will be implemented in future phases.</p>
-        <p>Mathematical expressions: $E = mc^2$ and $$\\int_{{-\\infty}}^{{\\infty}} e^{{-x^2}} dx = \\sqrt{{\\pi}}$$</p>
-    </div>
-</body>
-</html>"""
-
-
-def _create_mock_assets(output_dir: Path) -> list[Path]:
-    """
-    Create mock asset files.
-
-    Args:
-        output_dir: Output directory for assets
-
-    Returns:
-        list[Path]: List of created asset files
-    """
-    assets = []
-
-    # Create mock SVG files
-    for i in range(2):
-        svg_file = output_dir / f"figure_{i+1}.svg"
-        with open(svg_file, "w", encoding="utf-8") as f:
-            f.write(f"""<svg width="200" height="100" xmlns="http://www.w3.org/2000/svg">
-    <rect width="200" height="100" fill="#f0f0f0" stroke="#333" stroke-width="2"/>
-    <text x="100" y="50" text-anchor="middle" font-family="Arial" font-size="14">
-        Mock Figure {i+1}
-    </text>
-</svg>""")
-        assets.append(svg_file)
-
-    return assets
-
-
-# Debugging endpoints
-
-@router.get("/debug/system")
-async def debug_system_status() -> dict[str, Any]:
-    """
-    Get system diagnostics and status information.
-    
-    Returns:
-        System status information including tool availability and configuration
-    """
-    try:
-        # Check LaTeXML service
-        latexml_service = LaTeXMLService()
-        latexml_status = {
-            "available": True,
-            "version": "Unknown"
-        }
-        try:
-            version_info = latexml_service.get_version_info()
-            latexml_status["version"] = version_info.get("version", "Unknown")
-        except Exception as exc:
-            latexml_status["available"] = False
-            latexml_status["error"] = str(exc)
-        
-        # Check HTML post-processor
-        html_processor_status = {
-            "available": True,
-            "asset_conversion": False
-        }
-        try:
-            # Test HTML processor without asset conversion
-            HTMLPostProcessor(asset_conversion_service=None)
-        except Exception as exc:
-            html_processor_status["available"] = False
-            html_processor_status["error"] = str(exc)
-        
-        # System information
-        system_info = {
-            "platform": os.name,
-            "python_version": f"{os.sys.version_info.major}.{os.sys.version_info.minor}.{os.sys.version_info.micro}",
-            "working_directory": str(Path.cwd()),
-            "temp_directory": str(Path(tempfile.gettempdir())),
-            "max_file_size": settings.MAX_FILE_SIZE,
-            "allowed_extensions": settings.ALLOWED_EXTENSIONS
-        }
-        
-        # Active conversions
-        with _storage_lock:
-            active_conversions = len(_conversion_storage)
-        
-        return {
-            "status": "healthy",
-            "timestamp": datetime.utcnow().isoformat(),
-            "system": system_info,
-            "services": {
-                "latexml": latexml_status,
-                "html_processor": html_processor_status
-            },
-            "conversions": {
-                "active": active_conversions,
-                "storage_size": len(_conversion_storage)
-            }
-        }
-        
-    except Exception as exc:
-        logger.error(f"System diagnostics failed: {exc}")
-        raise HTTPException(status_code=500, detail=f"System diagnostics failed: {exc}")
-
-
-@router.get("/debug/conversion/{conversion_id}/logs")
-async def debug_conversion_logs(conversion_id: str) -> dict[str, Any]:
-    """
-    Get detailed logs for a specific conversion.
-    
-    Args:
-        conversion_id: Conversion ID to get logs for
-        
-    Returns:
-        Detailed conversion logs and debugging information
-    """
-    try:
-        conversion_data = _safe_get_conversion(conversion_id)
-        if not conversion_data:
-            raise HTTPException(status_code=404, detail="Conversion not found")
-        
-        # Extract logs and debugging information
-        logs = {
-            "conversion_id": conversion_id,
-            "status": conversion_data.get("status", "unknown"),
-            "created_at": conversion_data.get("created_at"),
-            "updated_at": conversion_data.get("updated_at"),
-            "processing_time": conversion_data.get("processing_time"),
-            "error_details": conversion_data.get("error_details"),
-            "warnings": conversion_data.get("warnings", []),
-            "steps_completed": conversion_data.get("steps_completed", []),
-            "file_info": {
-                "original_filename": conversion_data.get("original_filename"),
-                "file_size": conversion_data.get("file_size"),
-                "temp_dir": str(conversion_data.get("temp_dir", ""))
-            }
-        }
-        
-        # Add step-by-step logs if available
-        if "step_logs" in conversion_data:
-            logs["step_logs"] = conversion_data["step_logs"]
-        
-        # Add LaTeXML specific logs if available
-        if "latexml_logs" in conversion_data:
-            logs["latexml_logs"] = conversion_data["latexml_logs"]
-        
-        return logs
-        
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error(f"Failed to get conversion logs for {conversion_id}: {exc}")
-        raise HTTPException(status_code=500, detail=f"Failed to get conversion logs: {exc}")
-
-
-@router.post("/debug/test-latexml")
-async def debug_test_latexml(
-    test_content: str = Form(...),
-    test_type: str = Form("simple")
-) -> dict[str, Any]:
-    """
-    Test LaTeXML functionality with custom content.
-    
-    Args:
-        test_content: LaTeX content to test
-        test_type: Type of test (simple, math, complex)
-        
-    Returns:
-        Test results and debugging information
-    """
-    try:
-        # Create temporary test file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.tex', delete=False) as f:
-            f.write(test_content)
-            test_file = Path(f.name)
-        
-        try:
-            # Initialize LaTeXML service
-            latexml_service = LaTeXMLService()
-            
-            # Test conversion
-            with tempfile.TemporaryDirectory() as temp_dir:
-                temp_path = Path(temp_dir)
-                
-                # Convert
-                result = latexml_service.convert_tex_to_html(test_file, temp_path)
-                
-                # Test HTML post-processing
-                if result["success"]:
-                    html_file = Path(result["output_file"])
-                    html_processor = HTMLPostProcessor(asset_conversion_service=None)
-                    
-                    processed_file = temp_path / "processed.html"
-                    html_result = html_processor.process_html(html_file, processed_file)
-                    
-                    return {
-                        "test_type": test_type,
-                        "latex_conversion": {
-                            "success": result["success"],
-                            "output_file": str(result["output_file"]),
-                            "format": result.get("format", "unknown"),
-                            "errors": result.get("errors", []),
-                            "warnings": result.get("warnings", [])
-                        },
-                        "html_processing": {
-                            "success": html_result["success"],
-                            "steps_completed": html_result["steps_completed"],
-                            "errors": html_result["errors"],
-                            "warnings": html_result["warnings"]
-                        },
-                        "mathjax_integration": "MathJax" in (processed_file.read_text() if processed_file.exists() else ""),
-                        "timestamp": datetime.utcnow().isoformat()
-                    }
-                else:
-                    return {
-                        "test_type": test_type,
-                        "latex_conversion": {
-                            "success": False,
-                            "errors": result.get("errors", []),
-                            "warnings": result.get("warnings", [])
-                        },
-                        "html_processing": None,
-                        "mathjax_integration": False,
-                        "timestamp": datetime.utcnow().isoformat()
-                    }
-        
-        finally:
-            # Clean up test file
-            if test_file.exists():
-                test_file.unlink()
-                
-    except Exception as exc:
-        logger.error(f"LaTeXML test failed: {exc}")
-        raise HTTPException(status_code=500, detail=f"LaTeXML test failed: {exc}")
-
-
-@router.get("/debug/conversions")
-async def debug_list_conversions() -> dict[str, Any]:
-    """
-    List all active conversions with their status.
-    
-    Returns:
-        List of all conversions with their current status
-    """
-    try:
-        with _storage_lock:
-            conversions = []
-            for conversion_id, data in _conversion_storage.items():
-                conversions.append({
-                    "conversion_id": conversion_id,
-                    "status": data.get("status", "unknown"),
-                    "created_at": data.get("created_at"),
-                    "updated_at": data.get("updated_at"),
-                    "original_filename": data.get("original_filename"),
-                    "file_size": data.get("file_size"),
-                    "processing_time": data.get("processing_time"),
-                    "error_details": data.get("error_details"),
-                    "steps_completed": data.get("steps_completed", [])
-                })
-        
-        return {
-            "total_conversions": len(conversions),
-            "conversions": conversions,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-        
-    except Exception as exc:
-        logger.error(f"Failed to list conversions: {exc}")
-        raise HTTPException(status_code=500, detail=f"Failed to list conversions: {exc}")
-
-
-@router.delete("/debug/conversions/{conversion_id}")
-async def debug_cleanup_conversion(conversion_id: str) -> dict[str, Any]:
-    """
-    Manually cleanup a specific conversion.
-    
-    Args:
-        conversion_id: Conversion ID to cleanup
-        
-    Returns:
-        Cleanup result
-    """
-    try:
-        conversion_data = _safe_get_conversion(conversion_id)
-        if not conversion_data:
-            raise HTTPException(status_code=404, detail="Conversion not found")
-        
-        # Clean up files
-        temp_dir = Path(conversion_data["temp_dir"])
-        if temp_dir.exists():
-            _cleanup_temp_directory(temp_dir)
-        
-        # Remove from storage
-        _safe_remove_conversion(conversion_id)
-        
-        return {
-            "conversion_id": conversion_id,
-            "cleaned_up": True,
-            "timestamp": datetime.utcnow().isoformat()
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error(f"Failed to cleanup conversion {conversion_id}: {exc}")
-        raise HTTPException(status_code=500, detail=f"Failed to cleanup conversion: {exc}")
