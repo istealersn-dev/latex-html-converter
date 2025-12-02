@@ -229,6 +229,7 @@ logs/
 # Secrets and configuration
 .env.local
 .env.production
+.env.prod
 secrets/
 config/local.py
 config/production.py
