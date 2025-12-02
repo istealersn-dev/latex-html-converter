@@ -361,6 +361,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             # Store project structure in job metadata
             job.metadata["project_structure"] = {
                 "main_tex_file": str(project_structure.main_tex_file),
+                "project_dir": str(project_structure.project_dir),  # Store actual project directory
                 "files_discovered": len(project_structure.extracted_files),
                 "custom_classes": project_structure.dependencies.custom_classes,
                 "packages_required": len(project_structure.dependencies.packages)
@@ -446,15 +447,33 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
                 # Use already discovered project structure
                 main_tex_path = job.metadata["project_structure"]["main_tex_file"]
                 tex_file = Path(main_tex_path)
-                project_dir = job.output_dir  # Project files are extracted here
+                # Use stored project_dir if available, otherwise fall back to tex_file parent
+                if "project_dir" in job.metadata["project_structure"]:
+                    project_dir = Path(job.metadata["project_structure"]["project_dir"])
+                else:
+                    # Fallback for old metadata format: use the directory containing the main tex file
+                    project_dir = tex_file.parent
+                    logger.warning(f"project_dir not in metadata, using tex_file parent: {project_dir}")
             else:
                 # Fallback: discover project structure now
                 logger.info("Project structure not found, discovering now...")
-                project_structure = self.file_discovery.extract_project_files(
-                    job.input_file, job.output_dir
-                )
+                # Check if input is a ZIP file or already extracted
+                if job.input_file.suffix.lower() == '.zip':
+                    project_structure = self.file_discovery.extract_project_files(
+                        job.input_file, job.output_dir
+                    )
+                else:
+                    # Input is already extracted, use its parent directory as project_dir
+                    project_structure = ProjectStructure(
+                        main_tex_file=job.input_file,
+                        all_tex_files=[job.input_file],
+                        supporting_files={},
+                        dependencies=LatexDependencies(),
+                        project_dir=job.input_file.parent,
+                        extracted_files=[job.input_file]
+                    )
                 tex_file = project_structure.main_tex_file
-                project_dir = job.output_dir
+                project_dir = project_structure.project_dir
 
             # Convert with LaTeXML
             from app.configs.latexml import LaTeXMLConversionOptions

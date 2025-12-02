@@ -106,22 +106,31 @@ def _create_result_zip(output_dir: Path, output_zip: Path) -> None:
         with zipfile.ZipFile(output_zip, 'w', zipfile.ZIP_DEFLATED) as zipf:
             # Add HTML file - check for final.html first, then look in latexml subdirectory
             html_file = output_dir / "final.html"
+            html_in_latexml = False
             if not html_file.exists():
                 # Check in latexml subdirectory
                 latexml_html = output_dir / "latexml" / "main.html"
                 if latexml_html.exists():
                     html_file = latexml_html
+                    html_in_latexml = True
             
             if html_file.exists():
-                zipf.write(html_file, html_file.name)
+                # Preserve directory structure: if HTML is in latexml/, add it as latexml/main.html
+                # This ensures image paths in the HTML (like figures/fig.svg) match the ZIP structure
+                if html_in_latexml:
+                    zipf.write(html_file, html_file.relative_to(output_dir))
+                else:
+                    # final.html goes to root of ZIP
+                    zipf.write(html_file, html_file.name)
 
             # Add assets from output directory and subdirectories
+            # Preserve relative paths to maintain directory structure
             for asset_file in output_dir.rglob("*.svg"):
-                if asset_file != output_zip:  # Don't include the zip file itself
+                if asset_file != output_zip and asset_file != html_file:  # Don't include the zip file itself or the HTML file
                     zipf.write(asset_file, asset_file.relative_to(output_dir))
             
             for asset_file in output_dir.rglob("*.png"):
-                if asset_file != output_zip:
+                if asset_file != output_zip and asset_file != html_file:
                     zipf.write(asset_file, asset_file.relative_to(output_dir))
 
         logger.info(f"Created result ZIP: {output_zip}")
