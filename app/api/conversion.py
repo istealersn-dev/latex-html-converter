@@ -238,17 +238,36 @@ async def convert_latex_to_html(
                 post_processing_options=request_options.model_dump()
             )
 
-        # Create temporary directory for processing
-        temp_dir = Path(tempfile.mkdtemp(prefix=f"conversion_{uuid.uuid4()}_"))
+        # Create organized directory structure
+        project_root = Path.cwd()
+        uploads_dir = project_root / "uploads"
+        outputs_dir = project_root / "outputs"
+
+        # Create base directories if they don't exist
+        uploads_dir.mkdir(exist_ok=True)
+        outputs_dir.mkdir(exist_ok=True)
+
+        # Generate unique job ID and create job-specific directories
+        job_id = str(uuid.uuid4())
+        zip_name = file.filename.rsplit('.', 1)[0]  # Remove extension
+
+        # Create job directories
+        job_upload_dir = uploads_dir / job_id
+        job_output_dir = outputs_dir / f"{zip_name}_{job_id}"
+
+        job_upload_dir.mkdir(exist_ok=True)
+        job_output_dir.mkdir(exist_ok=True)
 
         try:
-            # Save uploaded file
-            input_file = temp_dir / f"input{file_ext}"
+            # Save uploaded file to uploads/job_id/
+            input_file = job_upload_dir / file.filename
             with open(input_file, "wb") as f:
                 f.write(file_content)
 
-            # Extract archive if needed
-            extracted_dir = _extract_archive(input_file, temp_dir)
+            logger.info(f"Saved upload to: {input_file}")
+
+            # Extract archive in upload directory
+            extracted_dir = _extract_archive(input_file, job_upload_dir)
             logger.info(f"Extracted archive to: {extracted_dir}")
 
             # Find main LaTeX file
@@ -259,9 +278,9 @@ async def convert_latex_to_html(
                     detail="No main LaTeX file found in archive"
                 )
 
-            # Create output directory
-            output_dir = temp_dir / "output"
-            output_dir.mkdir(exist_ok=True)
+            # Output goes to outputs/zip_name_job_id/
+            output_dir = job_output_dir
+            logger.info(f"Output will be saved to: {output_dir}")
 
             # Get orchestrator and start conversion
             logger.info("Getting orchestrator...")
@@ -270,18 +289,25 @@ async def convert_latex_to_html(
 
             try:
                 logger.info(f"Starting conversion: {main_tex_file} -> {output_dir}")
-                job_id = orchestrator.start_conversion(
+                conversion_job_id = orchestrator.start_conversion(
                     input_file=main_tex_file,
                     output_dir=output_dir,
                     options=conversion_options
                 )
 
-                logger.info(f"Started conversion job: {job_id}")
+                # Store the directory paths in conversion storage for later retrieval
+                _safe_update_conversion(conversion_job_id, {
+                    "upload_dir": str(job_upload_dir),
+                    "output_dir": str(job_output_dir),
+                    "zip_name": zip_name
+                })
+
+                logger.info(f"Started conversion job: {conversion_job_id}")
 
                 # For now, return a pending response
                 # In a real implementation, this would be handled asynchronously
                 response = ConversionResponse(
-                    conversion_id=job_id,
+                    conversion_id=conversion_job_id,
                     status=ConversionStatus.PENDING,
                     html_file="",  # Will be populated when conversion completes
                     assets=[],     # Will be populated when conversion completes
@@ -308,9 +334,11 @@ async def convert_latex_to_html(
                     detail=f"Conversion failed: {exc}"
                 )
 
-        except Exception:
-            # Cleanup on error
-            shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception as exc:
+            # Cleanup on error - remove job directories
+            logger.error(f"Error during conversion setup: {exc}")
+            shutil.rmtree(job_upload_dir, ignore_errors=True)
+            shutil.rmtree(job_output_dir, ignore_errors=True)
             raise
 
     except HTTPException:

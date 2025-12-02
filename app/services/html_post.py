@@ -371,7 +371,7 @@ class HTMLPostProcessor:
             mathjax_script = soup.new_tag('script', attrs={'src': 'https://polyfill.io/v3/polyfill.min.js?features=es6'})
             head.append(mathjax_script)
             
-            mathjax_main = soup.new_tag('script', attrs={'id': 'MathJax-script', 'async': True, 'src': 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js'})
+            mathjax_main = soup.new_tag('script', attrs={'id': 'MathJax-script', 'async': '', 'src': 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js'})
             head.append(mathjax_main)
 
     def _process_math_expressions(self, soup: BeautifulSoup) -> None:

@@ -71,7 +71,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
         """
         from app.config import settings
         from app.configs.latexml import LaTeXMLSettings
-        self.tectonic_service = tectonic_service or PDFLaTeXService(pdflatex_path="/usr/bin/pdflatex")
+        self.tectonic_service = tectonic_service or PDFLaTeXService(pdflatex_path=settings.PDFLATEX_PATH)
         # Use LaTeXMLSettings() to pick up environment variables
         self.latexml_service = latexml_service or LaTeXMLService(settings=LaTeXMLSettings())
         self.html_processor = html_processor or HTMLPostProcessor()
