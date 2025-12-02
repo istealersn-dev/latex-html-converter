@@ -261,8 +261,8 @@ async def convert_latex_to_html(
                     job_id=job_id  # Use the same job_id for folder naming and conversion tracking
                 )
 
-                # Store the directory paths in conversion storage for later retrieval
-                _safe_update_conversion(conversion_job_id, {
+                # Initialize conversion storage entry with directory paths for later retrieval
+                _safe_set_conversion(conversion_job_id, {
                     "upload_dir": str(job_upload_dir),
                     "output_dir": str(job_output_dir),
                     "zip_name": zip_name
