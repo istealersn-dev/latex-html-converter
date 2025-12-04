@@ -69,8 +69,10 @@ class HTMLPostProcessor:
             asset_validator: Service for validating converted assets
         """
         self.base_url = base_url
-        self.asset_conversion_service = asset_conversion_service or AssetConversionService()
+        self.asset_conversion_service = asset_conversion_service
         self.asset_validator = asset_validator or AssetValidator()
+        self._html_file_path: Path | None = None
+        self._output_file_path: Path | None = None
         self._setup_cleaner()
 
     def _setup_cleaner(self) -> None:
@@ -119,6 +121,10 @@ class HTMLPostProcessor:
             raise HTMLPostProcessingError(f"HTML file not found: {html_file}")
 
         try:
+            # Store file paths for path resolution
+            self._html_file_path = html_file
+            self._output_file_path = output_file
+
             # Load HTML content
             with open(html_file, encoding='utf-8') as f:
                 html_content = f.read()
@@ -318,6 +324,9 @@ class HTMLPostProcessor:
     def _enhance_html(self, soup: BeautifulSoup, results: dict[str, Any]) -> BeautifulSoup:
         """Enhance HTML with additional features."""
         try:
+            # Fix image paths to point to correct location
+            self._fix_image_paths(soup)
+
             # Process mathematical expressions for MathJax compatibility
             self._process_math_expressions(soup)
             
@@ -342,6 +351,44 @@ class HTMLPostProcessor:
             results["errors"].append(error_msg)
             logger.error(error_msg)
             return soup
+
+    def _fix_image_paths(self, soup: BeautifulSoup) -> None:
+        """Fix image paths to point to correct location relative to output file."""
+        if not self._html_file_path or not self._output_file_path:
+            return
+        
+        # Determine the relative path from output file to latexml directory
+        # If HTML is in latexml/ and output is in root, we need to adjust paths
+        html_dir = self._html_file_path.parent
+        output_dir = self._output_file_path.parent
+        
+        # Check if HTML is in a latexml subdirectory
+        if html_dir.name == "latexml" and output_dir != html_dir:
+            # Images are in latexml/figures/, but final HTML is in root
+            # So paths like "figures/figure-1.png" need to become "latexml/figures/figure-1.png"
+            for img in soup.find_all('img', src=True):
+                src = img.get('src', '')
+                if not src:
+                    continue
+                
+                # Skip absolute URLs and data URIs
+                if src.startswith(('http://', 'https://', 'data:', '/')):
+                    continue
+                
+                # If path starts with "figures/", update to "latexml/figures/"
+                if src.startswith('figures/'):
+                    new_src = f"latexml/{src}"
+                    img['src'] = new_src
+                    logger.debug(f"Updated image path: {src} -> {new_src}")
+                # If it's a relative path that might be in latexml/, check if it exists
+                elif not src.startswith('latexml/'):
+                    # Check if the file exists in latexml directory
+                    potential_path = html_dir / src
+                    if potential_path.exists():
+                        # Update to include latexml/ prefix
+                        new_src = f"latexml/{src}"
+                        img['src'] = new_src
+                        logger.debug(f"Updated image path: {src} -> {new_src}")
 
     def _add_mathjax_support(self, soup: BeautifulSoup) -> None:
         """Add MathJax support for math rendering."""
@@ -371,7 +418,7 @@ class HTMLPostProcessor:
             mathjax_script = soup.new_tag('script', attrs={'src': 'https://polyfill.io/v3/polyfill.min.js?features=es6'})
             head.append(mathjax_script)
             
-            mathjax_main = soup.new_tag('script', attrs={'id': 'MathJax-script', 'async': True, 'src': 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js'})
+            mathjax_main = soup.new_tag('script', attrs={'id': 'MathJax-script', 'async': '', 'src': 'https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js'})
             head.append(mathjax_main)
 
     def _process_math_expressions(self, soup: BeautifulSoup) -> None:
@@ -535,6 +582,12 @@ class HTMLPostProcessor:
     def _convert_assets_to_svg(self, soup: BeautifulSoup, html_dir: Path, results: dict[str, Any]) -> BeautifulSoup:
         """Convert assets (TikZ, PDF) to SVG format."""
         try:
+            # Skip asset conversion if service is not available
+            if self.asset_conversion_service is None:
+                logger.info("Asset conversion service not available, skipping asset conversion")
+                results["steps_completed"].append("asset_conversion_skipped")
+                return soup
+            
             # Create assets directory
             assets_dir = html_dir / "assets"
             assets_dir.mkdir(exist_ok=True)

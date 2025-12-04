@@ -91,7 +91,8 @@ class LaTeXMLService:
         self,
         input_file: Path,
         output_dir: Path,
-        options: LaTeXMLConversionOptions | None = None
+        options: LaTeXMLConversionOptions | None = None,
+        project_dir: Path | None = None
     ) -> dict[str, Any]:
         """
         Convert TeX file to HTML using LaTeXML.
@@ -100,6 +101,7 @@ class LaTeXMLService:
             input_file: Path to input TeX file
             output_dir: Directory for output files
             options: Conversion options
+            project_dir: Project directory with custom classes and styles
             
         Returns:
             Dict containing conversion results and metadata
@@ -148,6 +150,20 @@ class LaTeXMLService:
 
             # Build LaTeXML command
             cmd = settings.get_latexml_command(input_file, output_file)
+            
+            # Add project directory paths if provided
+            if project_dir and project_dir.exists():
+                # Add main project directory
+                cmd.extend(["--path", str(project_dir)])
+                
+                # Add common subdirectories if they exist
+                for subdir in ["doc", "graphic", "styles", "figures", "images"]:
+                    subdir_path = project_dir / subdir
+                    if subdir_path.exists():
+                        cmd.extend(["--path", str(subdir_path)])
+                
+                logger.info("Added project directory paths: %s", project_dir)
+            
             env_vars = settings.get_environment_vars()
 
             logger.info("Converting TeX to %s: %s -> %s", settings.output_format.upper(), input_file, output_file)
@@ -173,7 +189,7 @@ class LaTeXMLService:
 
                 # Parse conversion results
                 conversion_result = self._parse_conversion_result(
-                    input_file, output_file, result.stdout, result.stderr
+                    input_file, output_file, result.stdout, result.stderr, settings
                 )
 
                 # Validate output file was created
@@ -293,7 +309,8 @@ class LaTeXMLService:
         input_file: Path,
         output_file: Path,
         stdout: str,
-        stderr: str
+        stderr: str,
+        settings: LaTeXMLSettings
     ) -> dict[str, Any]:
         """
         Parse LaTeXML conversion results.
@@ -322,10 +339,10 @@ class LaTeXMLService:
             "warnings": warnings,
             "info_messages": info_messages,
             "conversion_time": None,  # Could be added with timing
-            "format": self.settings.output_format,
-            "mathml_included": self.settings.include_mathml,
-            "css_included": self.settings.include_css,
-            "javascript_included": self.settings.include_javascript,
+            "format": settings.output_format,
+            "mathml_included": settings.include_mathml,
+            "css_included": settings.include_css,
+            "javascript_included": settings.include_javascript,
         }
 
     def _extract_warnings(self, stderr: str) -> list[str]:

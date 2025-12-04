@@ -65,7 +65,7 @@ class AssetConversionService:
         from app.config import settings
         self.tikz_service = tikz_service or TikZConversionService(
             dvisvgm_path=settings.DVISVGM_PATH,
-            tectonic_path="/usr/bin/pdflatex"
+            tectonic_path=settings.PDFLATEX_PATH
         )
         self.pdf_service = pdf_service or PDFConversionService(
             gs_path="/usr/bin/gs",  # Docker path for ghostscript

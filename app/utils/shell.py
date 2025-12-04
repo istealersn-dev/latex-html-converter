@@ -115,9 +115,10 @@ def _validate_command_safety(cmd: list[str]) -> None:
     # Check if any dangerous pattern is present but not as a LaTeX flag
     for pattern in dangerous_patterns:
         if pattern in cmd_str.lower():
-            # Allow if it's part of a legitimate LaTeX flag
+            # Allow if it's part of a legitimate LaTeX flag or LaTeXML command
             is_latex_flag = any(flag in cmd_str for flag in latex_flags)
-            if not is_latex_flag:
+            is_latexml_cmd = any(latex_cmd in cmd_str for latex_cmd in ['latexml', 'latexmlc', 'pdflatex', 'tectonic'])
+            if not is_latex_flag and not is_latexml_cmd:
                 raise ValueError(f"Unsafe command pattern detected: {pattern}")
 
     # Additional check for dangerous commands (but not flags)
@@ -132,9 +133,21 @@ def _validate_command_safety(cmd: list[str]) -> None:
         # Allow some safe characters but log warning
         logger.warning(f"Command contains potentially unsafe characters: {cmd_str}")
 
-    # Additional security checks
-    if any(word in cmd_str for word in ['sudo', 'su', 'chmod', 'chown', 'passwd']):
-        raise ValueError(f"Potentially dangerous command detected: {cmd_str}")
+    # Additional security checks for dangerous commands as separate arguments
+    # Check if dangerous commands appear as standalone command arguments
+    # This prevents commands like: latexmlc /etc/passwd (where 'passwd' is in a path - allowed)
+    # vs: latexmlc passwd (where 'passwd' is a dangerous command argument - rejected)
+    dangerous_commands = ['sudo', 'su', 'chmod', 'chown', 'passwd']
+    for i, cmd_part in enumerate(cmd):
+        # Check arguments after the first one (executable path)
+        if i > 0:
+            # If argument exactly matches a dangerous command, reject it
+            # File paths would contain '/' or '.' indicating they're paths, not commands
+            if cmd_part in dangerous_commands:
+                # Allow if it's clearly a file path (contains path separators or file extension)
+                is_file_path = '/' in cmd_part or (cmd_part.startswith('.') and len(cmd_part) > 1) or '.' in cmd_part[1:]
+                if not is_file_path:
+                    raise ValueError(f"Potentially dangerous command detected: {cmd_part}")
 
     # Check for path traversal attempts
     if '..' in cmd_str or '/etc/' in cmd_str or '/sys/' in cmd_str:

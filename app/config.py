@@ -43,7 +43,8 @@ class Settings(BaseSettings):
 
     # External tools settings
     TECTONIC_PATH: str = "/usr/local/bin/tectonic"
-    LATEXML_PATH: str = "/usr/bin/latexml"
+    PDFLATEX_PATH: str = "/usr/bin/pdflatex"  # Docker default, override with env var
+    LATEXML_PATH: str = "/usr/bin/latexmlc"  # Docker default, override with env var
     DVISVGM_PATH: str = "/usr/bin/dvisvgm"
 
     # Conversion settings

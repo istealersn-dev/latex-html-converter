@@ -1,0 +1,122 @@
+{
+  "info": {
+    "name": "LaTeX to HTML Converter API",
+    "description": "API endpoints for converting LaTeX documents to HTML5",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "job_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/v1/health",
+          "host": ["{{base_url}}"],
+          "path": ["api", "v1", "health"]
+        },
+        "description": "Check if the service is running and healthy"
+      },
+      "response": []
+    },
+    {
+      "name": "2. Convert LaTeX to HTML",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Save job_id to environment variable",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"job_id\", jsonData.conversion_id);",
+              "console.log(\"Job ID saved: \" + jsonData.conversion_id);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": "sample.zip",
+              "description": "LaTeX project as .zip file"
+            },
+            {
+              "key": "enable_fallback",
+              "value": "true",
+              "type": "text",
+              "description": "Enable fallback mode (optional)"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/api/v1/convert",
+          "host": ["{{base_url}}"],
+          "path": ["api", "v1", "convert"]
+        },
+        "description": "Upload a LaTeX project (.zip, .tar.gz, or .tar) for conversion"
+      },
+      "response": []
+    },
+    {
+      "name": "3. Check Conversion Status",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/v1/convert/{{job_id}}",
+          "host": ["{{base_url}}"],
+          "path": ["api", "v1", "convert", "{{job_id}}"]
+        },
+        "description": "Check the status of a conversion job using the job_id from step 2"
+      },
+      "response": []
+    },
+    {
+      "name": "4. Download HTML Result",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/v1/convert/{{job_id}}/download/html",
+          "host": ["{{base_url}}"],
+          "path": ["api", "v1", "convert", "{{job_id}}", "download", "html"]
+        },
+        "description": "Download the converted HTML file"
+      },
+      "response": []
+    },
+    {
+      "name": "5. Get Conversion Result",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/v1/convert/{{job_id}}/result",
+          "host": ["{{base_url}}"],
+          "path": ["api", "v1", "convert", "{{job_id}}", "result"]
+        },
+        "description": "Get the full conversion result with metadata"
+      },
+      "response": []
+    }
+  ]
+}

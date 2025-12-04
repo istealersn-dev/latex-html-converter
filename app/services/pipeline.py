@@ -14,6 +14,7 @@ from typing import Any
 from loguru import logger
 
 from app.models.conversion import (
+    ConversionDiagnostics,
     ConversionJob,
     ConversionOptions,
     ConversionProgress,
@@ -22,8 +23,10 @@ from app.models.conversion import (
     ConversionStatus,
     PipelineStage,
 )
+from app.services.file_discovery import FileDiscoveryService, ProjectStructure, LatexDependencies
 from app.services.html_post import HTMLPostProcessingError, HTMLPostProcessor
 from app.services.latexml import LaTeXMLError, LaTeXMLService
+from app.services.package_manager import PackageManagerService
 from app.services.pdflatex import PDFLaTeXCompilationError, PDFLaTeXService
 from app.utils.fs import cleanup_directory, ensure_directory, get_file_info
 
@@ -52,7 +55,9 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
         self,
         tectonic_service: PDFLaTeXService | None = None,
         latexml_service: LaTeXMLService | None = None,
-        html_processor: HTMLPostProcessor | None = None
+        html_processor: HTMLPostProcessor | None = None,
+        file_discovery: FileDiscoveryService | None = None,
+        package_manager: PackageManagerService | None = None
     ):
         """
         Initialize the conversion pipeline.
@@ -61,12 +66,17 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             tectonic_service: Tectonic service instance
             latexml_service: LaTeXML service instance
             html_processor: HTML post-processor instance
+            file_discovery: File discovery service instance
+            package_manager: Package manager service instance
         """
         from app.config import settings
         from app.configs.latexml import LaTeXMLSettings
-        self.tectonic_service = tectonic_service or PDFLaTeXService(pdflatex_path="/usr/bin/pdflatex")
-        self.latexml_service = latexml_service or LaTeXMLService(settings=LaTeXMLSettings(latexml_path=settings.LATEXML_PATH))
+        self.tectonic_service = tectonic_service or PDFLaTeXService(pdflatex_path=settings.PDFLATEX_PATH)
+        # Use LaTeXMLSettings() to pick up environment variables
+        self.latexml_service = latexml_service or LaTeXMLService(settings=LaTeXMLSettings())
         self.html_processor = html_processor or HTMLPostProcessor()
+        self.file_discovery = file_discovery or FileDiscoveryService()
+        self.package_manager = package_manager or PackageManagerService()
 
         # Pipeline configuration
         self.max_concurrent_jobs = 5
@@ -318,7 +328,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
         job.stages = stages
 
     def _execute_tectonic_stage(self, job: ConversionJob) -> None:
-        """Execute Tectonic compilation stage."""
+        """Execute Tectonic compilation stage with enhanced file discovery and package management."""
         stage = job.stages[0]
         stage.status = ConversionStatus.RUNNING
         stage.started_at = datetime.utcnow()
@@ -327,9 +337,67 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
         try:
             logger.info(f"Starting Tectonic compilation for job: {job.job_id}")
 
-            # Compile LaTeX with Tectonic
+            # Step 1: Discover and prepare all project files
+            logger.info("Discovering project files...")
+            
+            # Check if input file is a ZIP file or already extracted
+            if job.input_file.suffix.lower() == '.zip':
+                # Input is a ZIP file, extract it
+                project_structure = self.file_discovery.extract_project_files(
+                    job.input_file, job.output_dir
+                )
+            else:
+                # Input is already extracted, create a minimal project structure
+                logger.info("Input file is already extracted, creating project structure...")
+                project_structure = ProjectStructure(
+                    main_tex_file=job.input_file,
+                    all_tex_files=[job.input_file],
+                    supporting_files={},
+                    dependencies=LatexDependencies(),
+                    project_dir=job.input_file.parent,
+                    extracted_files=[job.input_file]
+                )
+            
+            # Store project structure in job metadata
+            job.metadata["project_structure"] = {
+                "main_tex_file": str(project_structure.main_tex_file),
+                "project_dir": str(project_structure.project_dir),  # Store actual project directory
+                "files_discovered": len(project_structure.extracted_files),
+                "custom_classes": project_structure.dependencies.custom_classes,
+                "packages_required": len(project_structure.dependencies.packages)
+            }
+
+            # Step 2: Detect required packages
+            logger.info("Detecting required packages...")
+            required_packages = self.package_manager.detect_required_packages(
+                project_structure.main_tex_file
+            )
+            
+            # Step 3: Check and install missing packages
+            if required_packages:
+                logger.info(f"Checking availability of {len(required_packages)} packages...")
+                missing_packages = []
+                availability = self.package_manager.check_package_availability(required_packages)
+                
+                for package, available in availability.items():
+                    if not available:
+                        missing_packages.append(package)
+                
+                if missing_packages:
+                    logger.info(f"Attempting to install {len(missing_packages)} missing packages: {missing_packages}")
+                    install_result = self.package_manager.install_missing_packages(missing_packages)
+                    
+                    if install_result.installed_packages:
+                        logger.info(f"Successfully installed {len(install_result.installed_packages)} packages")
+                    
+                    if install_result.failed_packages:
+                        logger.debug(f"Could not install {len(install_result.failed_packages)} packages: {install_result.failed_packages} (may not be critical)")
+                        # Continue anyway - some packages might not be critical
+
+            # Step 4: Compile with Tectonic
+            logger.info("Starting Tectonic compilation...")
             result = self.tectonic_service.compile_latex(
-                input_file=job.input_file,
+                input_file=project_structure.main_tex_file,
                 output_dir=job.output_dir / "tectonic",
                 options=job.options.get("tectonic_options", {})
             )
@@ -345,17 +413,26 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
             logger.info(f"Tectonic compilation completed for job: {job.job_id}")
 
-        except PDFLaTeXCompilationError as exc:
-            stage.status = ConversionStatus.FAILED
-            stage.error_message = str(exc)
+        except (PDFLaTeXCompilationError, FileNotFoundError) as exc:
+            # Log detailed error but continue with LaTeXML-only conversion
+            logger.warning(f"Tectonic compilation failed: {exc}")
+            logger.info("Falling back to LaTeXML-only conversion")
+            
+            stage.status = ConversionStatus.SKIPPED
             stage.completed_at = datetime.utcnow()
-            raise ConversionPipelineError(
-                f"Tectonic compilation failed: {exc}",
-                "tectonic_compilation"
-            )
+            stage.duration_seconds = (stage.completed_at - stage.started_at).total_seconds()
+            stage.metadata["fallback_reason"] = str(exc)
+            stage.metadata["fallback_used"] = True
+            
+            # Update job metadata for fallback
+            job.metadata["tectonic_failed"] = True
+            job.metadata["fallback_reason"] = str(exc)
+            
+            # Don't raise - allow pipeline to continue with LaTeXML-only
+            logger.info("Continuing with LaTeXML-only conversion")
 
     def _execute_latexml_stage(self, job: ConversionJob) -> None:
-        """Execute LaTeXML conversion stage."""
+        """Execute LaTeXML conversion stage with project structure support."""
         stage = job.stages[1]
         stage.status = ConversionStatus.RUNNING
         stage.started_at = datetime.utcnow()
@@ -364,14 +441,50 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
         try:
             logger.info(f"Starting LaTeXML conversion for job: {job.job_id}")
 
-            # Find the main TeX file (assuming it's the input file)
-            tex_file = job.input_file
+            # Get project structure from metadata or discover it
+            project_structure = None
+            if "project_structure" in job.metadata:
+                # Use already discovered project structure
+                main_tex_path = job.metadata["project_structure"]["main_tex_file"]
+                tex_file = Path(main_tex_path)
+                # Use stored project_dir if available, otherwise fall back to tex_file parent
+                if "project_dir" in job.metadata["project_structure"]:
+                    project_dir = Path(job.metadata["project_structure"]["project_dir"])
+                else:
+                    # Fallback for old metadata format: use the directory containing the main tex file
+                    project_dir = tex_file.parent
+                    logger.warning(f"project_dir not in metadata, using tex_file parent: {project_dir}")
+            else:
+                # Fallback: discover project structure now
+                logger.info("Project structure not found, discovering now...")
+                # Check if input is a ZIP file or already extracted
+                if job.input_file.suffix.lower() == '.zip':
+                    project_structure = self.file_discovery.extract_project_files(
+                        job.input_file, job.output_dir
+                    )
+                else:
+                    # Input is already extracted, use its parent directory as project_dir
+                    project_structure = ProjectStructure(
+                        main_tex_file=job.input_file,
+                        all_tex_files=[job.input_file],
+                        supporting_files={},
+                        dependencies=LatexDependencies(),
+                        project_dir=job.input_file.parent,
+                        extracted_files=[job.input_file]
+                    )
+                tex_file = project_structure.main_tex_file
+                project_dir = project_structure.project_dir
 
             # Convert with LaTeXML
+            from app.configs.latexml import LaTeXMLConversionOptions
+            latexml_options = LaTeXMLConversionOptions(**job.options.get("latexml_options", {}))
+            
+            # Pass project directory for custom classes and styles
             result = self.latexml_service.convert_tex_to_html(
                 input_file=tex_file,
                 output_dir=job.output_dir / "latexml",
-                options=job.options.get("latexml_options", {})
+                options=latexml_options,
+                project_dir=project_dir
             )
 
             # Update stage

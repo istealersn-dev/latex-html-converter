@@ -1,0 +1,110 @@
+version: '3.8'
+
+services:
+  latex-converter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: latex-html-converter:latest
+    container_name: latex-html-converter-prod
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      # Persistent volumes for production data
+      - latex-uploads:/app/uploads
+      - latex-outputs:/app/outputs
+      - latex-logs:/app/logs
+    environment:
+      # Production environment variables
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      
+      # Server settings
+      - HOST=0.0.0.0
+      - PORT=8000
+      
+      # Tool paths (Docker TeXLive paths)
+      - TECTONIC_PATH=/usr/local/bin/tectonic
+      - PDFLATEX_PATH=/usr/bin/pdflatex
+      - LATEXML_PATH=/usr/bin/latexmlc
+      - DVISVGM_PATH=/usr/bin/dvisvgm
+      
+      # File paths
+      - UPLOAD_DIR=/app/uploads
+      - OUTPUT_DIR=/app/outputs
+      
+      # Conversion settings
+      - CONVERSION_TIMEOUT=${CONVERSION_TIMEOUT:-600}
+      - MAX_CONCURRENT_CONVERSIONS=${MAX_CONCURRENT_CONVERSIONS:-5}
+      
+      # Security
+      - SECRET_KEY=${SECRET_KEY}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-}
+      
+      # File upload limits
+      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-104857600}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    # Production command with workers (no reload)
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --workers ${WORKERS:-4}
+      --log-level ${LOG_LEVEL:-info}
+      --access-log
+      --no-use-colors
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '${CPU_LIMIT:-2.0}'
+          memory: ${MEMORY_LIMIT:-4G}
+        reservations:
+          cpus: '${CPU_RESERVATION:-1.0}'
+          memory: ${MEMORY_RESERVATION:-2G}
+    # Security: run as non-root (already in Dockerfile)
+    # No stdin/tty in production
+    stdin_open: false
+    tty: false
+    # Network isolation (optional)
+    networks:
+      - latex-network
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  latex-uploads:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${UPLOAD_VOLUME_PATH:-/var/lib/latex-converter/uploads}
+  latex-outputs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${OUTPUT_VOLUME_PATH:-/var/lib/latex-converter/outputs}
+  latex-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${LOG_VOLUME_PATH:-/var/lib/latex-converter/logs}
+
+networks:
+  latex-network:
+    driver: bridge
+
