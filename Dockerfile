@@ -59,9 +59,8 @@ WORKDIR /app
 COPY pyproject.toml ./
 
 # Install Poetry system-wide (accessible to all users)
-RUN curl -sSL https://install.python-poetry.org | python3 - && \
-    mv /root/.local /usr/local/poetry
-ENV PATH="/usr/local/poetry/bin:$PATH"
+RUN curl -sSL https://install.python-poetry.org | python3 -
+ENV PATH="/root/.local/bin:$PATH"
 
 # Configure Poetry to not create virtualenvs
 RUN poetry config virtualenvs.create false
