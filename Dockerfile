@@ -38,19 +38,25 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /var/cache/apt/*
 
-# Create non-root user early for security
-RUN useradd --create-home --shell /bin/bash appuser
-
-# Configure tlmgr for package management (run as root but configure for user)
-RUN tlmgr init-usertree && \
-    tlmgr option repository https://mirror.ctan.org/systems/texlive/tlnet && \
-    tlmgr update --self
-
 # Create symbolic link for pdflatex as tectonic (since TeXLive has pdflatex but not tectonic)
 RUN ln -sf /usr/bin/pdflatex /usr/local/bin/tectonic
 
 # Create symbolic link for python (if it doesn't exist)
 RUN ln -sf /usr/bin/python3 /usr/bin/python
+
+# Install Poetry system-wide before switching users
+ENV POETRY_HOME="/opt/poetry"
+RUN curl -sSL https://install.python-poetry.org | python3 - && \
+    mv /root/.local/share/pypoetry /opt/poetry
+ENV PATH="/opt/poetry/bin:$PATH"
+
+# Configure tlmgr for package management
+RUN tlmgr init-usertree && \
+    tlmgr option repository https://mirror.ctan.org/systems/texlive/tlnet && \
+    tlmgr update --self
+
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash appuser
 
 # Set working directory
 WORKDIR /app
@@ -58,15 +64,9 @@ WORKDIR /app
 # Copy Poetry files
 COPY pyproject.toml ./
 
-# Install Poetry system-wide (accessible to all users)
-RUN curl -sSL https://install.python-poetry.org | python3 -
-ENV PATH="/root/.local/bin:$PATH"
-
-# Configure Poetry to not create virtualenvs
-RUN poetry config virtualenvs.create false
-
-# Install Python dependencies
-RUN poetry install --only=main --no-interaction --no-ansi --no-root
+# Configure Poetry to not create virtualenvs and install dependencies
+RUN poetry config virtualenvs.create false && \
+    poetry install --only=main --no-interaction --no-ansi --no-root
 
 # Copy application code
 COPY . .
