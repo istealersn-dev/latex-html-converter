@@ -490,8 +490,23 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
             self.cancel_job(job_id)
 
 
-# Global orchestrator instance
-_orchestrator: ConversionOrchestrator | None = None
+# ============================================================================
+# GLOBAL STATE - Singleton Orchestrator Instance
+# ============================================================================
+# NOTE: This global variable implements the Singleton pattern for the orchestrator.
+# This is acceptable and intentional for the following reasons:
+# 1. Single Source of Truth: Ensures all API requests use the same orchestrator
+# 2. Resource Management: Centralized management of concurrent jobs and cleanup
+# 3. Thread-Safety: Protected by lock in get_orchestrator() for initialization
+# 4. Lifecycle: Properly initialized on first access and shut down on app shutdown
+#
+# The orchestrator itself is thread-safe:
+# - All internal operations use self._job_lock
+# - Background threads are properly managed
+# - Supports graceful shutdown
+# ============================================================================
+
+_orchestrator: ConversionOrchestrator | None = None  # Singleton instance
 
 
 def get_orchestrator() -> ConversionOrchestrator:

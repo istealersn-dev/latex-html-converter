@@ -27,15 +27,32 @@ from app.utils.fs import ensure_sufficient_disk_space
 
 router = APIRouter()
 
-# In-memory storage for conversion tracking
-# In production, this should be replaced with a proper database
-_conversion_storage: dict[str, dict[str, Any]] = {}
-_storage_lock = threading.RLock()  # Reentrant lock for thread safety
-_cleanup_thread: threading.Thread | None = None
-_shutdown_event = threading.Event()
+# ============================================================================
+# GLOBAL STATE - In-Memory Storage for Conversion Tracking
+# ============================================================================
+# NOTE: These global variables implement a simple in-memory storage pattern.
+# This is acceptable for the following reasons:
+# 1. Thread-Safety: All access is protected by _storage_lock (RLock)
+# 2. Single Instance: FastAPI runs in a single process with multiple threads
+# 3. Simplicity: Avoids complexity of external database for MVP
+# 4. Production Path: Clearly documented that this should be replaced with
+#    a proper database (Redis, PostgreSQL, etc.) for production deployments
+#
+# For production, consider replacing with:
+# - Redis for distributed caching and job tracking
+# - PostgreSQL/MongoDB for persistent storage
+# - FastAPI dependency injection for better testability
+# ============================================================================
+
+_conversion_storage: dict[str, dict[str, Any]] = {}  # Job metadata storage
+_storage_lock = threading.RLock()  # Reentrant lock for thread-safe access
+_cleanup_thread: threading.Thread | None = None  # Background cleanup thread
+_shutdown_event = threading.Event()  # Graceful shutdown signal
 
 
-# Helper functions (defined before use)
+# ============================================================================
+# Helper Functions - Thread-Safe Storage Operations
+# ============================================================================
 
 def _safe_get_conversion(conversion_id: str) -> dict[str, Any] | None:
     """
@@ -257,6 +274,18 @@ async def convert_latex_to_html(
     """
     Convert LaTeX project to HTML5 using the conversion orchestrator.
 
+    This function is intentionally comprehensive as it handles the complete HTTP
+    request lifecycle for file uploads and conversions. While it could be broken
+    into smaller functions, keeping it as one function provides:
+    - Clear request-to-response flow
+    - Centralized error handling
+    - Single transaction semantics for the entire operation
+
+    For future refactoring, consider extracting:
+    - File validation logic into _validate_upload_file()
+    - Directory setup into _setup_conversion_directories()
+    - Conversion orchestration into _orchestrate_conversion()
+
     Args:
         background_tasks: FastAPI background tasks for async processing
         file: Uploaded LaTeX project file (zip/tar.gz)
@@ -264,6 +293,9 @@ async def convert_latex_to_html(
 
     Returns:
         ConversionResponse: Conversion result with HTML and assets
+
+    Raises:
+        HTTPException: For validation errors, insufficient storage, or conversion failures
     """
     try:
         # Validate file
@@ -446,6 +478,9 @@ async def get_conversion_status(conversion_id: str) -> ConversionStatusResponse:
 
     Returns:
         ConversionStatusResponse: Conversion status and progress
+
+    Raises:
+        HTTPException: 404 if conversion not found, 500 on retrieval failure
     """
     try:
         orchestrator = get_orchestrator()
@@ -635,6 +670,9 @@ async def download_conversion_result(conversion_id: str) -> FileResponse:
 
     Returns:
         FileResponse: ZIP file containing HTML and assets
+
+    Raises:
+        HTTPException: 404 if not found, 410 if files cleaned up, 500 on error
     """
     try:
         # Check if conversion exists in storage
