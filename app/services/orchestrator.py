@@ -115,16 +115,27 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
                     f"Maximum concurrent jobs ({self.max_concurrent_jobs}) exceeded"
                 )
 
+            job_created_id = None
             try:
+                # Generate or validate job ID
+                requested_job_id = job_id or str(uuid4())
+
+                # Check for duplicate job ID
+                if requested_job_id in self._jobs:
+                    raise OrchestrationError(
+                        f"Job ID {requested_job_id} already exists. Cannot create duplicate job."
+                    )
+
                 # Create job
                 job = self._pipeline.create_conversion_job(
                     input_file=input_file,
                     output_dir=output_dir,
                     options=options,
-                    job_id=job_id or str(uuid4())
+                    job_id=requested_job_id
                 )
+                job_created_id = job.job_id
 
-                # Store job
+                # Store job and mark as active atomically
                 self._jobs[job.job_id] = job
                 self._active_job_ids.add(job.job_id)
                 self._stats["total_jobs"] += 1
@@ -136,6 +147,12 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
                 return job.job_id
 
             except Exception as exc:
+                # Cleanup on failure: remove from active jobs if it was added
+                if job_created_id and job_created_id in self._active_job_ids:
+                    self._active_job_ids.discard(job_created_id)
+                    # Also remove from jobs dict if it was added
+                    self._jobs.pop(job_created_id, None)
+
                 logger.exception(f"Failed to start conversion: {exc}")
                 raise OrchestrationError(f"Failed to start conversion: {exc}")
 
@@ -323,7 +340,7 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
                 # Execute pipeline
                 self._pipeline.execute_pipeline(job)
 
-                # Update statistics
+                # Update statistics and cleanup - always happens
                 with self._job_lock:
                     if job.status == ConversionStatus.COMPLETED:
                         self._stats["completed_jobs"] += 1
@@ -333,7 +350,7 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
                     if job.total_duration_seconds:
                         self._stats["total_processing_time"] += job.total_duration_seconds
 
-                    # Remove from active jobs
+                    # Always remove from active jobs when done
                     self._active_job_ids.discard(job.job_id)
 
                 logger.info(f"Conversion task completed for job: {job.job_id}")
@@ -346,15 +363,38 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
                     job.completed_at = datetime.utcnow()
                     job.error_message = str(exc)
                     self._stats["failed_jobs"] += 1
+                    # Ensure immediate cleanup on failure
                     self._active_job_ids.discard(job.job_id)
 
-        # Start background thread
-        thread = threading.Thread(
-            target=_run_conversion,
-            name=f"conversion-{job.job_id}",
-            daemon=True
-        )
-        thread.start()
+        try:
+            # Start background thread
+            thread = threading.Thread(
+                target=_run_conversion,
+                name=f"conversion-{job.job_id}",
+                daemon=True
+            )
+            thread.start()
+
+            # Verify thread started successfully
+            if not thread.is_alive():
+                # Thread failed to start - clean up immediately
+                logger.error(f"Failed to start background thread for job {job.job_id}")
+                with self._job_lock:
+                    job.status = ConversionStatus.FAILED
+                    job.completed_at = datetime.utcnow()
+                    job.error_message = "Failed to start background conversion thread"
+                    self._stats["failed_jobs"] += 1
+                    self._active_job_ids.discard(job.job_id)
+
+        except Exception as exc:
+            # Thread creation failed - clean up immediately
+            logger.exception(f"Failed to create background thread for job {job.job_id}: {exc}")
+            with self._job_lock:
+                job.status = ConversionStatus.FAILED
+                job.completed_at = datetime.utcnow()
+                job.error_message = f"Failed to create background thread: {exc}"
+                self._stats["failed_jobs"] += 1
+                self._active_job_ids.discard(job.job_id)
 
     def _start_background_tasks(self) -> None:
         """Start background monitoring and cleanup tasks."""
