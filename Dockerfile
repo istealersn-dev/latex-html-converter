@@ -64,8 +64,10 @@ WORKDIR /app
 COPY pyproject.toml ./
 
 # Configure Poetry to not create virtualenvs and install dependencies
+# Use installer.no-binary to handle system-managed Python environment
 RUN poetry config virtualenvs.create false && \
-    poetry install --only=main --no-interaction --no-ansi --no-root
+    poetry config installer.max-workers 10 && \
+    PIP_BREAK_SYSTEM_PACKAGES=1 poetry install --only=main --no-interaction --no-ansi --no-root
 
 # Copy application code
 COPY . .
