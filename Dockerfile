@@ -46,8 +46,7 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python
 
 # Install Poetry system-wide before switching users
 ENV POETRY_HOME="/opt/poetry"
-RUN curl -sSL https://install.python-poetry.org | python3 - && \
-    mv /root/.local/share/pypoetry /opt/poetry
+RUN curl -sSL https://install.python-poetry.org | POETRY_HOME=/opt/poetry python3 -
 ENV PATH="/opt/poetry/bin:$PATH"
 
 # Configure tlmgr for package management
