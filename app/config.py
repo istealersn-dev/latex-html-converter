@@ -54,6 +54,20 @@ class Settings(BaseSettings):
     # Security settings
     SECRET_KEY: str = "your-secret-key-change-in-production"
 
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, v: str, info) -> str:
+        """Validate secret key is changed in production."""
+        environment = info.data.get("ENVIRONMENT", "development")
+        if environment == "production" and v == "your-secret-key-change-in-production":
+            raise ValueError(
+                "SECRET_KEY must be changed in production! "
+                "Set SECRET_KEY environment variable to a secure random value."
+            )
+        if len(v) < 32:
+            raise ValueError("SECRET_KEY must be at least 32 characters long")
+        return v
+
     @field_validator("ENVIRONMENT")
     @classmethod
     def validate_environment(cls, v: str) -> str:

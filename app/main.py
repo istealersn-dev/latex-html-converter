@@ -6,6 +6,7 @@ middleware, and routing for the LaTeX to HTML5 conversion service.
 """
 
 import uvicorn
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -14,6 +15,30 @@ from loguru import logger
 from app.api import conversion, health
 from app.config import settings
 from app.middleware import LoggingMiddleware
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for FastAPI application.
+
+    Handles startup and shutdown events.
+    """
+    # Startup
+    logger.info("Starting LaTeX → HTML5 Converter service")
+    logger.info(f"Environment: {settings.ENVIRONMENT}")
+    logger.info(f"Debug mode: {settings.DEBUG}")
+
+    # Start cleanup thread for conversion storage
+    conversion.start_cleanup_thread()
+
+    yield
+
+    # Shutdown
+    logger.info("Shutting down LaTeX → HTML5 Converter service")
+
+    # Stop cleanup thread
+    conversion.stop_cleanup_thread()
 
 
 def create_app() -> FastAPI:
@@ -29,7 +54,8 @@ def create_app() -> FastAPI:
         version="0.1.0",
         docs_url="/docs",
         redoc_url="/redoc",
-        openapi_url="/openapi.json"
+        openapi_url="/openapi.json",
+        lifespan=lifespan
     )
 
     # Add middleware
@@ -85,6 +111,8 @@ def setup_logging() -> None:
     """
     Configure logging with loguru.
     """
+    from pathlib import Path
+
     logger.remove()  # Remove default handler
 
     # Add console handler
@@ -97,6 +125,10 @@ def setup_logging() -> None:
 
     # Add file handler for production
     if settings.ENVIRONMENT == "production":
+        # Ensure logs directory exists
+        log_dir = Path("logs")
+        log_dir.mkdir(exist_ok=True)
+
         logger.add(
             "logs/app.log",
             rotation="1 day",
@@ -108,24 +140,6 @@ def setup_logging() -> None:
 
 # Create the FastAPI application instance
 app = create_app()
-
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    """
-    Application startup event handler.
-    """
-    logger.info("Starting LaTeX → HTML5 Converter service")
-    logger.info(f"Environment: {settings.ENVIRONMENT}")
-    logger.info(f"Debug mode: {settings.DEBUG}")
-
-
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    """
-    Application shutdown event handler.
-    """
-    logger.info("Shutting down LaTeX → HTML5 Converter service")
 
 
 if __name__ == "__main__":

@@ -78,21 +78,23 @@ class HTMLPostProcessor:
     def _setup_cleaner(self) -> None:
         """Set up HTML cleaner with appropriate settings."""
         if Cleaner is not None:
+            # Conservative settings: only remove truly dangerous content
+            # DO NOT remove scripts/styles as we need to add MathJax later
             self.cleaner = Cleaner(
-                scripts=True,  # Remove script tags
-                javascript=True,  # Remove javascript
-                comments=True,  # Remove comments
-                style=True,  # Remove style tags
-                links=True,  # Remove links
-                meta=True,  # Remove meta tags
-                page_structure=True,  # Remove page structure elements
-                processing_instructions=True,  # Remove processing instructions
-                embedded=True,  # Remove embedded content
-                frames=True,  # Remove frames
-                forms=True,  # Remove forms
-                annoying_tags=True,  # Remove annoying tags
-                safe_attrs_only=True,  # Only keep safe attributes
-                remove_unknown_tags=True,  # Remove unknown tags
+                scripts=False,  # Keep scripts - we add MathJax scripts
+                javascript=False,  # Keep javascript URLs - needed for MathJax
+                comments=True,  # Remove HTML comments
+                style=False,  # Keep style tags - needed for math rendering
+                links=False,  # Keep links - needed for stylesheets
+                meta=False,  # Keep meta tags - needed for charset, viewport
+                page_structure=False,  # Keep page structure
+                processing_instructions=True,  # Remove XML processing instructions
+                embedded=True,  # Remove embedded objects (for security)
+                frames=True,  # Remove frames (security risk)
+                forms=True,  # Remove forms (not needed for LaTeX output)
+                annoying_tags=False,  # Keep tags - some might be needed
+                safe_attrs_only=False,  # Keep all attributes for MathML/MathJax
+                remove_unknown_tags=False,  # Keep unknown tags - might be LaTeXML specific
             )
         else:
             self.cleaner = None
@@ -213,20 +215,47 @@ class HTMLPostProcessor:
                     del tag.attrs[attr]
 
     def _clean_dangerous_content(self, soup: BeautifulSoup) -> None:
-        """Remove potentially dangerous content."""
-        # Remove script tags
+        """Remove potentially dangerous content while preserving safe scripts."""
+        # Remove only inline scripts and scripts with suspicious content
+        # Preserve scripts from trusted CDNs (MathJax, etc.)
+        trusted_script_sources = [
+            'cdn.jsdelivr.net',
+            'cdnjs.cloudflare.com',
+            'polyfill.io',
+            'mathjax',
+        ]
+
         for script in soup.find_all('script'):
-            script.decompose()
+            # Check if script has a src attribute
+            src = script.get('src', '')
+            script_content = script.string or ''
+
+            # Remove if:
+            # 1. Inline script with content (no src)
+            # 2. External script from untrusted source
+            # 3. Script contains suspicious patterns
+            is_trusted = any(domain in src.lower() for domain in trusted_script_sources)
+            has_inline_content = not src and script_content.strip()
+            has_suspicious_content = any(
+                pattern in script_content.lower()
+                for pattern in ['eval(', 'document.write', 'innerHTML', 'fromCharCode']
+            )
+
+            if has_inline_content or (src and not is_trusted) or has_suspicious_content:
+                logger.debug(f"Removing potentially dangerous script: {src or 'inline'}")
+                script.decompose()
 
         # Remove style tags with potentially dangerous content
         for style in soup.find_all('style'):
-            if 'javascript:' in str(style.string).lower():
+            style_content = str(style.string or '')
+            if 'javascript:' in style_content.lower() or 'expression(' in style_content.lower():
+                logger.debug("Removing style tag with dangerous content")
                 style.decompose()
 
         # Remove onclick and similar event handlers
         for tag in soup.find_all():
             if tag.attrs:
-                dangerous_attrs = ['onclick', 'onload', 'onerror', 'onmouseover', 'onfocus']
+                dangerous_attrs = ['onclick', 'onload', 'onerror', 'onmouseover', 'onfocus', 'onblur']
                 for attr in dangerous_attrs:
                     if attr in tag.attrs:
                         del tag.attrs[attr]

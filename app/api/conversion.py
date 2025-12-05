@@ -10,7 +10,7 @@ import shutil
 import tempfile
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +23,7 @@ from app.models.conversion import ConversionOptions
 from app.models.conversion import ConversionStatus as ConversionStatusEnum
 from app.models.response import ConversionResponse, ConversionStatus, ConversionStatusResponse
 from app.services.orchestrator import OrchestrationError, ResourceLimitError, get_orchestrator
+from app.utils.fs import ensure_sufficient_disk_space
 
 router = APIRouter()
 
@@ -30,6 +31,8 @@ router = APIRouter()
 # In production, this should be replaced with a proper database
 _conversion_storage: dict[str, dict[str, Any]] = {}
 _storage_lock = threading.RLock()  # Reentrant lock for thread safety
+_cleanup_thread: threading.Thread | None = None
+_shutdown_event = threading.Event()
 
 
 # Helper functions (defined before use)
@@ -90,6 +93,98 @@ def _safe_update_conversion(conversion_id: str, updates: dict[str, Any]) -> bool
             _conversion_storage[conversion_id].update(updates)
             return True
         return False
+
+
+def _cleanup_old_conversions() -> int:
+    """
+    Clean up old conversion entries from storage.
+
+    Returns:
+        Number of entries cleaned up
+    """
+    cutoff_time = datetime.utcnow() - timedelta(hours=24)
+    cleaned_count = 0
+
+    with _storage_lock:
+        conversions_to_remove = []
+        orchestrator = get_orchestrator()
+
+        for conv_id, conv_data in _conversion_storage.items():
+            # Get job status from orchestrator
+            status = orchestrator.get_job_status(conv_id)
+
+            # Remove if job is completed/failed and old, or if job no longer exists
+            if status is None or status in [ConversionStatusEnum.COMPLETED, ConversionStatusEnum.FAILED, ConversionStatusEnum.CANCELLED]:
+                # Check if we have a timestamp
+                created_at_str = conv_data.get('created_at')
+                if created_at_str:
+                    try:
+                        created_at = datetime.fromisoformat(created_at_str) if isinstance(created_at_str, str) else created_at_str
+                        if created_at < cutoff_time:
+                            conversions_to_remove.append(conv_id)
+                    except (ValueError, TypeError):
+                        # If timestamp parsing fails, remove it anyway
+                        conversions_to_remove.append(conv_id)
+                else:
+                    # No timestamp, remove it
+                    conversions_to_remove.append(conv_id)
+
+        for conv_id in conversions_to_remove:
+            conv_data = _conversion_storage.pop(conv_id, None)
+            if conv_data:
+                # Clean up directories
+                for dir_key in ['upload_dir', 'output_dir', 'temp_dir']:
+                    if dir_key in conv_data:
+                        dir_path = Path(conv_data[dir_key])
+                        if dir_path.exists():
+                            try:
+                                shutil.rmtree(dir_path, ignore_errors=True)
+                                logger.debug(f"Cleaned up directory: {dir_path}")
+                            except Exception as exc:
+                                logger.warning(f"Failed to clean up directory {dir_path}: {exc}")
+                cleaned_count += 1
+
+    if cleaned_count > 0:
+        logger.info(f"Cleaned up {cleaned_count} old conversion entries")
+
+    return cleaned_count
+
+
+def _cleanup_loop() -> None:
+    """Background cleanup loop for old conversions."""
+    while not _shutdown_event.is_set():
+        try:
+            _cleanup_old_conversions()
+            # Wait for 1 hour or until shutdown
+            _shutdown_event.wait(3600)
+        except Exception as exc:
+            logger.error(f"Error in cleanup loop: {exc}")
+            _shutdown_event.wait(60)  # Wait 1 minute before retrying
+
+
+def start_cleanup_thread() -> None:
+    """Start the background cleanup thread."""
+    global _cleanup_thread
+
+    if _cleanup_thread is None or not _cleanup_thread.is_alive():
+        _cleanup_thread = threading.Thread(
+            target=_cleanup_loop,
+            name="conversion-storage-cleanup",
+            daemon=True
+        )
+        _cleanup_thread.start()
+        logger.info("Started conversion storage cleanup thread")
+
+
+def stop_cleanup_thread() -> None:
+    """Stop the background cleanup thread."""
+    global _cleanup_thread
+
+    _shutdown_event.set()
+
+    if _cleanup_thread and _cleanup_thread.is_alive():
+        _cleanup_thread.join(timeout=5.0)
+        logger.info("Stopped conversion storage cleanup thread")
 
 
 def _create_result_zip(output_dir: Path, output_zip: Path) -> None:
@@ -212,6 +307,19 @@ async def convert_latex_to_html(
                 post_processing_options=request_options.model_dump()
             )
 
+        # Check disk space before processing
+        # Estimate required space: 3x file size for extraction + processing
+        required_space_mb = (len(file_content) * 3) / (1024 * 1024)
+        required_space_mb = max(required_space_mb, 100)  # Minimum 100 MB
+
+        try:
+            ensure_sufficient_disk_space(Path.cwd(), int(required_space_mb))
+        except OSError as exc:
+            raise HTTPException(
+                status_code=507,  # Insufficient Storage
+                detail=f"Insufficient disk space: {exc}"
+            )
+
         # Create organized directory structure
         project_root = Path.cwd()
         uploads_dir = project_root / "uploads"
@@ -274,7 +382,8 @@ async def convert_latex_to_html(
                 _safe_set_conversion(conversion_job_id, {
                     "upload_dir": str(job_upload_dir),
                     "output_dir": str(job_output_dir),
-                    "zip_name": zip_name
+                    "zip_name": zip_name,
+                    "created_at": datetime.utcnow().isoformat()
                 })
 
                 logger.info(f"Started conversion job: {conversion_job_id}")
@@ -299,11 +408,15 @@ async def convert_latex_to_html(
                 return response
 
             except ResourceLimitError as exc:
+                # Cleanup storage entry on resource limit error
+                _safe_remove_conversion(conversion_job_id)
                 raise HTTPException(
                     status_code=503,
                     detail=f"Service temporarily unavailable: {exc}"
                 )
             except OrchestrationError as exc:
+                # Cleanup storage entry on orchestration error
+                _safe_remove_conversion(conversion_job_id)
                 raise HTTPException(
                     status_code=500,
                     detail=f"Conversion failed: {exc}"
@@ -630,36 +743,108 @@ def _parse_conversion_options(options: str | None) -> ConversionOptions | None:
         return None
 
 
-def _extract_archive(input_file: Path, temp_dir: Path) -> Path:
+def _extract_archive(input_file: Path, temp_dir: Path, timeout: int = 300) -> Path:
     """
-    Extract archive file to temporary directory.
+    Extract archive file to temporary directory with security checks and timeout.
 
     Args:
         input_file: Path to input archive file
         temp_dir: Temporary directory for extraction
+        timeout: Maximum time in seconds for extraction (default: 5 minutes)
 
     Returns:
         Path: Path to extracted directory
+
+    Raises:
+        HTTPException: If extraction fails, times out, or archive is malicious
     """
     import zipfile
     import tarfile
-    
+    import signal
+    from contextlib import contextmanager
+
+    @contextmanager
+    def time_limit(seconds: int):
+        """Context manager to enforce time limit on operations."""
+        def signal_handler(signum, frame):
+            raise TimeoutError(f"Archive extraction timed out after {seconds} seconds")
+
+        # Set the signal handler and alarm
+        old_handler = signal.signal(signal.SIGALRM, signal_handler)
+        signal.alarm(seconds)
+        try:
+            yield
+        finally:
+            # Restore old handler and disable alarm
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
+
     extracted_dir = temp_dir / "extracted"
     extracted_dir.mkdir(exist_ok=True)
 
+    def is_safe_path(base_path: Path, target_path: Path) -> bool:
+        """Check if target_path is within base_path (prevents zip slip)."""
+        try:
+            # Resolve to absolute paths
+            base_abs = base_path.resolve()
+            target_abs = target_path.resolve()
+
+            # Check if target is within base
+            return str(target_abs).startswith(str(base_abs))
+        except Exception:
+            return False
+
     try:
-        if input_file.suffix.lower() == '.zip':
-            with zipfile.ZipFile(input_file, 'r') as zip_ref:
-                zip_ref.extractall(extracted_dir)
-        elif input_file.suffix.lower() in ['.tar', '.gz'] or input_file.name.endswith('.tar.gz'):
-            with tarfile.open(input_file, 'r:*') as tar_ref:
-                tar_ref.extractall(extracted_dir)
-        else:
-            raise ValueError(f"Unsupported archive format: {input_file.suffix}")
-            
+        with time_limit(timeout):
+            if input_file.suffix.lower() == '.zip':
+                with zipfile.ZipFile(input_file, 'r') as zip_ref:
+                    # Validate all paths before extraction
+                    for member in zip_ref.namelist():
+                        member_path = extracted_dir / member
+                        if not is_safe_path(extracted_dir, member_path):
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Archive contains unsafe path: {member} (potential zip slip attack)"
+                            )
+
+                    # Safe to extract
+                    zip_ref.extractall(extracted_dir)
+
+            elif input_file.suffix.lower() in ['.tar', '.gz'] or input_file.name.endswith('.tar.gz'):
+                with tarfile.open(input_file, 'r:*') as tar_ref:
+                    # Validate all paths before extraction
+                    for member in tar_ref.getmembers():
+                        member_path = extracted_dir / member.name
+                        if not is_safe_path(extracted_dir, member_path):
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Archive contains unsafe path: {member.name} (potential zip slip attack)"
+                            )
+
+                        # Additional security: check for absolute paths
+                        if member.name.startswith('/') or member.name.startswith('..'):
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Archive contains absolute or parent path: {member.name}"
+                            )
+
+                    # Safe to extract
+                    tar_ref.extractall(extracted_dir)
+            else:
+                raise ValueError(f"Unsupported archive format: {input_file.suffix}")
+
         logger.info(f"Successfully extracted archive to: {extracted_dir}")
         return extracted_dir
-        
+
+    except TimeoutError as exc:
+        logger.error(f"Archive extraction timed out: {exc}")
+        raise HTTPException(
+            status_code=408,  # Request Timeout
+            detail=str(exc)
+        )
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as exc:
         logger.error(f"Failed to extract archive {input_file}: {exc}")
         raise HTTPException(
