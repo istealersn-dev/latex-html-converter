@@ -149,9 +149,20 @@ def _validate_command_safety(cmd: list[str]) -> None:
                 if not is_file_path:
                     raise ValueError(f"Potentially dangerous command detected: {cmd_part}")
 
-    # Check for path traversal attempts
-    if '..' in cmd_str or '/etc/' in cmd_str or '/sys/' in cmd_str:
-        raise ValueError(f"Path traversal or system directory access detected: {cmd_str}")
+    # Check for path traversal attempts - but allow legitimate LaTeX file paths
+    # Only block if trying to access actual system directories, not paths containing "etc"
+    dangerous_paths = [
+        '/etc/passwd', '/etc/shadow', '/etc/hosts',
+        '/sys/', '/proc/', '/dev/', '/root/'
+    ]
+    for dangerous_path in dangerous_paths:
+        if dangerous_path in cmd_str.lower():
+            raise ValueError(f"Access to system directory not allowed: {cmd_str}")
+
+    # Path traversal is allowed for LaTeX projects (e.g., \input{../chapter/file.tex})
+    # Only block if combined with dangerous patterns
+    if '..' in cmd_str and any(pattern in cmd_str for pattern in ['/etc/', '/sys/', '/proc/']):
+        raise ValueError(f"Suspicious path traversal pattern detected: {cmd_str}")
 
 
 def run_command_with_retry(

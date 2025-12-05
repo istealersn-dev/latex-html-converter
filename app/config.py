@@ -50,9 +50,24 @@ class Settings(BaseSettings):
     # Conversion settings
     CONVERSION_TIMEOUT: int = 300  # 5 minutes
     MAX_CONCURRENT_CONVERSIONS: int = 5
+    CONVERSION_RETENTION_HOURS: int = 24  # How long to keep conversion results
 
     # Security settings
     SECRET_KEY: str = "your-secret-key-change-in-production"
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, v: str, info) -> str:
+        """Validate secret key is changed in production."""
+        environment = info.data.get("ENVIRONMENT", "development")
+        if environment == "production" and v == "your-secret-key-change-in-production":
+            raise ValueError(
+                "SECRET_KEY must be changed in production! "
+                "Set SECRET_KEY environment variable to a secure random value."
+            )
+        if len(v) < 64:
+            raise ValueError("SECRET_KEY must be at least 64 characters long for production security")
+        return v
 
     @field_validator("ENVIRONMENT")
     @classmethod
@@ -103,16 +118,19 @@ def get_settings() -> Settings:
     return settings
 
 
-# Environment-specific configurations
-if settings.ENVIRONMENT == "production":
-    # Production-specific settings
-    settings.DEBUG = False
-    settings.LOG_LEVEL = "WARNING"
-    settings.ALLOWED_ORIGINS = ["https://your-domain.com"]
-    settings.ALLOWED_HOSTS = ["your-domain.com"]
-elif settings.ENVIRONMENT == "staging":
-    # Staging-specific settings
-    settings.DEBUG = False
-    settings.LOG_LEVEL = "INFO"
-    settings.ALLOWED_ORIGINS = ["https://staging.your-domain.com"]
-    settings.ALLOWED_HOSTS = ["staging.your-domain.com"]
+# Note: Environment-specific configurations should be set via environment variables
+# Example .env files for each environment:
+#
+# Production (.env.production):
+#   ENVIRONMENT=production
+#   DEBUG=false
+#   LOG_LEVEL=WARNING
+#   ALLOWED_ORIGINS=["https://your-domain.com"]
+#   ALLOWED_HOSTS=["your-domain.com"]
+#
+# Staging (.env.staging):
+#   ENVIRONMENT=staging
+#   DEBUG=false
+#   LOG_LEVEL=INFO
+#   ALLOWED_ORIGINS=["https://staging.your-domain.com"]
+#   ALLOWED_HOSTS=["staging.your-domain.com"]

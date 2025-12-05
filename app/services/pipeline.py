@@ -7,6 +7,7 @@ Tectonic → LaTeXML → HTML Post-Processing
 
 import threading
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -126,9 +127,10 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             # Ensure output directory exists
             ensure_directory(output_dir)
 
-            # Create job
+            # Create job with UUID-based ID for consistency
+            # Use provided job_id or generate a new UUID
             job = ConversionJob(
-                job_id=job_id or f"job_{int(time.time())}_{hash(str(input_file))}",
+                job_id=job_id or str(uuid.uuid4()),
                 input_file=input_file,
                 output_dir=output_dir,
                 options=options.model_dump() if options else {},

@@ -115,16 +115,27 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
                     f"Maximum concurrent jobs ({self.max_concurrent_jobs}) exceeded"
                 )
 
+            job_created_id = None
             try:
+                # Generate or validate job ID
+                requested_job_id = job_id or str(uuid4())
+
+                # Check for duplicate job ID
+                if requested_job_id in self._jobs:
+                    raise OrchestrationError(
+                        f"Job ID {requested_job_id} already exists. Cannot create duplicate job."
+                    )
+
                 # Create job
                 job = self._pipeline.create_conversion_job(
                     input_file=input_file,
                     output_dir=output_dir,
                     options=options,
-                    job_id=job_id or str(uuid4())
+                    job_id=requested_job_id
                 )
+                job_created_id = job.job_id
 
-                # Store job
+                # Store job and mark as active atomically
                 self._jobs[job.job_id] = job
                 self._active_job_ids.add(job.job_id)
                 self._stats["total_jobs"] += 1
@@ -136,6 +147,12 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
                 return job.job_id
 
             except Exception as exc:
+                # Cleanup on failure: remove from active jobs if it was added
+                if job_created_id and job_created_id in self._active_job_ids:
+                    self._active_job_ids.discard(job_created_id)
+                    # Also remove from jobs dict if it was added
+                    self._jobs.pop(job_created_id, None)
+
                 logger.exception(f"Failed to start conversion: {exc}")
                 raise OrchestrationError(f"Failed to start conversion: {exc}")
 
@@ -217,17 +234,26 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
     def list_jobs(
         self,
         status_filter: ConversionStatus | None = None,
-        limit: int = 100
+        limit: int = 100,
+        offset: int = 0
     ) -> list[ConversionJob]:
         """
-        List conversion jobs with optional filtering.
+        List conversion jobs with optional filtering and pagination.
 
         Args:
             status_filter: Optional status filter
-            limit: Maximum number of jobs to return
+            limit: Maximum number of jobs to return (default: 100)
+            offset: Number of jobs to skip (default: 0)
 
         Returns:
             List[ConversionJob]: List of jobs
+
+        Example:
+            # Get first page (10 jobs)
+            jobs = orchestrator.list_jobs(limit=10, offset=0)
+
+            # Get second page (next 10 jobs)
+            jobs = orchestrator.list_jobs(limit=10, offset=10)
         """
         with self._job_lock:
             jobs = list(self._jobs.values())
@@ -238,7 +264,25 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
             # Sort by creation time (newest first)
             jobs.sort(key=lambda x: x.created_at, reverse=True)
 
-            return jobs[:limit]
+            # Apply pagination
+            start_idx = offset
+            end_idx = offset + limit
+            return jobs[start_idx:end_idx]
+
+    def count_jobs(self, status_filter: ConversionStatus | None = None) -> int:
+        """
+        Count total number of jobs matching filter.
+
+        Args:
+            status_filter: Optional status filter
+
+        Returns:
+            int: Total count of matching jobs
+        """
+        with self._job_lock:
+            if status_filter:
+                return sum(1 for job in self._jobs.values() if job.status == status_filter)
+            return len(self._jobs)
 
     def get_statistics(self) -> dict[str, Any]:
         """
@@ -323,7 +367,7 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
                 # Execute pipeline
                 self._pipeline.execute_pipeline(job)
 
-                # Update statistics
+                # Update statistics and cleanup - always happens
                 with self._job_lock:
                     if job.status == ConversionStatus.COMPLETED:
                         self._stats["completed_jobs"] += 1
@@ -333,7 +377,7 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
                     if job.total_duration_seconds:
                         self._stats["total_processing_time"] += job.total_duration_seconds
 
-                    # Remove from active jobs
+                    # Always remove from active jobs when done
                     self._active_job_ids.discard(job.job_id)
 
                 logger.info(f"Conversion task completed for job: {job.job_id}")
@@ -346,15 +390,38 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
                     job.completed_at = datetime.utcnow()
                     job.error_message = str(exc)
                     self._stats["failed_jobs"] += 1
+                    # Ensure immediate cleanup on failure
                     self._active_job_ids.discard(job.job_id)
 
-        # Start background thread
-        thread = threading.Thread(
-            target=_run_conversion,
-            name=f"conversion-{job.job_id}",
-            daemon=True
-        )
-        thread.start()
+        try:
+            # Start background thread
+            thread = threading.Thread(
+                target=_run_conversion,
+                name=f"conversion-{job.job_id}",
+                daemon=True
+            )
+            thread.start()
+
+            # Verify thread started successfully
+            if not thread.is_alive():
+                # Thread failed to start - clean up immediately
+                logger.error(f"Failed to start background thread for job {job.job_id}")
+                with self._job_lock:
+                    job.status = ConversionStatus.FAILED
+                    job.completed_at = datetime.utcnow()
+                    job.error_message = "Failed to start background conversion thread"
+                    self._stats["failed_jobs"] += 1
+                    self._active_job_ids.discard(job.job_id)
+
+        except Exception as exc:
+            # Thread creation failed - clean up immediately
+            logger.exception(f"Failed to create background thread for job {job.job_id}: {exc}")
+            with self._job_lock:
+                job.status = ConversionStatus.FAILED
+                job.completed_at = datetime.utcnow()
+                job.error_message = f"Failed to create background thread: {exc}"
+                self._stats["failed_jobs"] += 1
+                self._active_job_ids.discard(job.job_id)
 
     def _start_background_tasks(self) -> None:
         """Start background monitoring and cleanup tasks."""
@@ -382,8 +449,8 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
         """Background cleanup loop."""
         while not self._shutdown_event.is_set():
             try:
-                # Clean up old jobs
-                self.cleanup_completed_jobs(older_than_hours=1)
+                # Clean up old jobs (using same retention period as conversion storage)
+                self.cleanup_completed_jobs(older_than_hours=settings.CONVERSION_RETENTION_HOURS)
 
                 # Wait for next cleanup cycle
                 self._shutdown_event.wait(self.cleanup_interval)
@@ -423,8 +490,23 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
             self.cancel_job(job_id)
 
 
-# Global orchestrator instance
-_orchestrator: ConversionOrchestrator | None = None
+# ============================================================================
+# GLOBAL STATE - Singleton Orchestrator Instance
+# ============================================================================
+# NOTE: This global variable implements the Singleton pattern for the orchestrator.
+# This is acceptable and intentional for the following reasons:
+# 1. Single Source of Truth: Ensures all API requests use the same orchestrator
+# 2. Resource Management: Centralized management of concurrent jobs and cleanup
+# 3. Thread-Safety: Protected by lock in get_orchestrator() for initialization
+# 4. Lifecycle: Properly initialized on first access and shut down on app shutdown
+#
+# The orchestrator itself is thread-safe:
+# - All internal operations use self._job_lock
+# - Background threads are properly managed
+# - Supports graceful shutdown
+# ============================================================================
+
+_orchestrator: ConversionOrchestrator | None = None  # Singleton instance
 
 
 def get_orchestrator() -> ConversionOrchestrator:

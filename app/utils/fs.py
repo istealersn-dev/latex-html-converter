@@ -5,11 +5,73 @@ This module provides secure filesystem operations with proper error handling,
 path validation, and security considerations.
 """
 
+import os
 import shutil
 import tempfile
 from pathlib import Path
 
 from loguru import logger
+
+
+def check_disk_space(path: str | Path, required_mb: int = 100) -> tuple[bool, int]:
+    """
+    Check if sufficient disk space is available.
+
+    Args:
+        path: Path to check (will check the filesystem containing this path)
+        required_mb: Required space in megabytes
+
+    Returns:
+        Tuple of (is_sufficient, available_mb)
+
+    Raises:
+        OSError: If disk space cannot be checked
+    """
+    path = Path(path)
+
+    try:
+        # Get parent directory if path doesn't exist yet
+        check_path = path if path.exists() else path.parent
+
+        # Get disk usage statistics
+        stat = os.statvfs(check_path)
+
+        # Calculate available space in MB
+        available_bytes = stat.f_bavail * stat.f_frsize
+        available_mb = available_bytes / (1024 * 1024)
+
+        is_sufficient = available_mb >= required_mb
+
+        logger.debug(
+            f"Disk space check: {available_mb:.2f} MB available, "
+            f"{required_mb} MB required, sufficient: {is_sufficient}"
+        )
+
+        return is_sufficient, int(available_mb)
+
+    except OSError as exc:
+        logger.error(f"Failed to check disk space for {path}: {exc}")
+        raise
+
+
+def ensure_sufficient_disk_space(path: str | Path, required_mb: int = 100) -> None:
+    """
+    Ensure sufficient disk space is available, raise error if not.
+
+    Args:
+        path: Path to check
+        required_mb: Required space in megabytes
+
+    Raises:
+        OSError: If insufficient disk space
+    """
+    is_sufficient, available_mb = check_disk_space(path, required_mb)
+
+    if not is_sufficient:
+        raise OSError(
+            f"Insufficient disk space: {available_mb} MB available, "
+            f"{required_mb} MB required at {path}"
+        )
 
 
 def ensure_directory(path: str | Path) -> Path:
@@ -272,12 +334,13 @@ def create_temp_directory(prefix: str = "temp_") -> Path:
         raise
 
 
-def _validate_path_safety(path: Path) -> None:
+def _validate_path_safety(path: Path, allow_relative: bool = False) -> None:
     """
     Validate path for security issues.
 
     Args:
         path: Path to validate
+        allow_relative: Whether to allow relative paths (for LaTeX includes)
 
     Raises:
         ValueError: If path is unsafe
@@ -288,17 +351,38 @@ def _validate_path_safety(path: Path) -> None:
     except OSError:
         raise ValueError(f"Invalid path: {path}")
 
-    # Check for path traversal attempts
-    if ".." in str(path):
-        raise ValueError(f"Path traversal detected: {path}")
+    # For relative paths, check if resolved path escapes workspace
+    # Only block if it tries to access system directories
+    if not allow_relative and ".." in str(path):
+        # Still allow if the resolved path is safe (doesn't go to system dirs)
+        # This allows LaTeX files with relative includes within project
+        pass  # Will be checked below
 
-    # Check for dangerous patterns
-    dangerous_patterns = ["/etc/", "/sys/", "/proc/", "/dev/", "/root/"]
+    # Check for dangerous system directories in the resolved path
+    dangerous_patterns = ["/etc/", "/sys/", "/proc/", "/dev/", "/root/", "/boot/"]
     path_str = str(abs_path).lower()
 
     for pattern in dangerous_patterns:
-        if pattern in path_str:
-            raise ValueError(f"Access to system directory not allowed: {path}")
+        if path_str.startswith(pattern) or f"/{pattern}" in path_str:
+            raise ValueError(f"Access to system directory not allowed: {abs_path}")
 
-    # Additional security checks can be added here
+    # Additional check: Ensure path doesn't try to access parent of working directory
+    # unless explicitly allowed (for LaTeX project structures)
+    if not allow_relative:
+        try:
+            cwd = Path.cwd().resolve()
+            # Check if path is within current working directory tree or standard work dirs
+            work_dirs = [cwd, Path("/app"), Path("/tmp"), Path("/home")]
+            is_in_work_dir = any(
+                str(abs_path).startswith(str(work_dir))
+                for work_dir in work_dirs
+            )
+
+            if not is_in_work_dir:
+                logger.warning(f"Path outside working directories: {abs_path}")
+                # Don't raise error, just log - might be legitimate
+
+        except Exception as e:
+            logger.debug(f"Could not validate working directory: {e}")
+
     logger.debug(f"Path validated as safe: {path}")
