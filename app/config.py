@@ -117,16 +117,19 @@ def get_settings() -> Settings:
     return settings
 
 
-# Environment-specific configurations
-if settings.ENVIRONMENT == "production":
-    # Production-specific settings
-    settings.DEBUG = False
-    settings.LOG_LEVEL = "WARNING"
-    settings.ALLOWED_ORIGINS = ["https://your-domain.com"]
-    settings.ALLOWED_HOSTS = ["your-domain.com"]
-elif settings.ENVIRONMENT == "staging":
-    # Staging-specific settings
-    settings.DEBUG = False
-    settings.LOG_LEVEL = "INFO"
-    settings.ALLOWED_ORIGINS = ["https://staging.your-domain.com"]
-    settings.ALLOWED_HOSTS = ["staging.your-domain.com"]
+# Note: Environment-specific configurations should be set via environment variables
+# Example .env files for each environment:
+#
+# Production (.env.production):
+#   ENVIRONMENT=production
+#   DEBUG=false
+#   LOG_LEVEL=WARNING
+#   ALLOWED_ORIGINS=["https://your-domain.com"]
+#   ALLOWED_HOSTS=["your-domain.com"]
+#
+# Staging (.env.staging):
+#   ENVIRONMENT=staging
+#   DEBUG=false
+#   LOG_LEVEL=INFO
+#   ALLOWED_ORIGINS=["https://staging.your-domain.com"]
+#   ALLOWED_HOSTS=["staging.your-domain.com"]

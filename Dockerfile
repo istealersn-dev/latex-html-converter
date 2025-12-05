@@ -10,6 +10,10 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Install comprehensive LaTeX packages and system dependencies
+# NOTE: texlive-full creates a large image (~4GB). For production optimization, consider:
+# - Using a smaller base image like texlive/texlive:TL2023-historic
+# - Installing only required packages instead of texlive-full
+# - Multi-stage build to separate build dependencies from runtime
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-dev \
@@ -30,9 +34,14 @@ RUN apt-get update && apt-get install -y \
     latexml \
     poppler-utils \
     dvisvgm \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /var/cache/apt/*
 
-# Configure tlmgr for package management
+# Create non-root user early for security
+RUN useradd --create-home --shell /bin/bash appuser
+
+# Configure tlmgr for package management (run as root but configure for user)
 RUN tlmgr init-usertree && \
     tlmgr option repository https://mirror.ctan.org/systems/texlive/tlnet && \
     tlmgr update --self
@@ -49,18 +58,16 @@ WORKDIR /app
 # Copy Poetry files
 COPY pyproject.toml ./
 
-# Install Poetry as root
-RUN curl -sSL https://install.python-poetry.org | python3 -
-ENV PATH="/root/.local/bin:$PATH"
+# Install Poetry system-wide (accessible to all users)
+RUN curl -sSL https://install.python-poetry.org | python3 - && \
+    mv /root/.local /usr/local/poetry
+ENV PATH="/usr/local/poetry/bin:$PATH"
 
-# Configure Poetry
+# Configure Poetry to not create virtualenvs
 RUN poetry config virtualenvs.create false
 
 # Install Python dependencies
 RUN poetry install --only=main --no-interaction --no-ansi --no-root
-
-# Create non-root user for security
-RUN useradd --create-home --shell /bin/bash appuser
 
 # Copy application code
 COPY . .
@@ -75,9 +82,9 @@ USER appuser
 # Expose port
 EXPOSE 8000
 
-# Health check
+# Health check using Python instead of curl (reduces dependencies)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/api/v1/health || exit 1
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/healthz').read()" || exit 1
 
 # Default command
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

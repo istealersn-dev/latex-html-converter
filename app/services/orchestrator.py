@@ -234,17 +234,26 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
     def list_jobs(
         self,
         status_filter: ConversionStatus | None = None,
-        limit: int = 100
+        limit: int = 100,
+        offset: int = 0
     ) -> list[ConversionJob]:
         """
-        List conversion jobs with optional filtering.
+        List conversion jobs with optional filtering and pagination.
 
         Args:
             status_filter: Optional status filter
-            limit: Maximum number of jobs to return
+            limit: Maximum number of jobs to return (default: 100)
+            offset: Number of jobs to skip (default: 0)
 
         Returns:
             List[ConversionJob]: List of jobs
+
+        Example:
+            # Get first page (10 jobs)
+            jobs = orchestrator.list_jobs(limit=10, offset=0)
+
+            # Get second page (next 10 jobs)
+            jobs = orchestrator.list_jobs(limit=10, offset=10)
         """
         with self._job_lock:
             jobs = list(self._jobs.values())
@@ -255,7 +264,25 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
             # Sort by creation time (newest first)
             jobs.sort(key=lambda x: x.created_at, reverse=True)
 
-            return jobs[:limit]
+            # Apply pagination
+            start_idx = offset
+            end_idx = offset + limit
+            return jobs[start_idx:end_idx]
+
+    def count_jobs(self, status_filter: ConversionStatus | None = None) -> int:
+        """
+        Count total number of jobs matching filter.
+
+        Args:
+            status_filter: Optional status filter
+
+        Returns:
+            int: Total count of matching jobs
+        """
+        with self._job_lock:
+            if status_filter:
+                return sum(1 for job in self._jobs.values() if job.status == status_filter)
+            return len(self._jobs)
 
     def get_statistics(self) -> dict[str, Any]:
         """

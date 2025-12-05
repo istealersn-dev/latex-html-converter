@@ -554,11 +554,12 @@ async def get_conversion_result(conversion_id: str) -> ConversionResponse:
             if result.assets:
                 assets_list = [str(asset) for asset in result.assets if asset.exists()]
             elif output_dir:
-                # Fallback: find assets in output directory
-                assets_list = [
-                    str(f) for f in 
-                    list(output_dir.glob("*.svg")) + list(output_dir.glob("*.png")) + list(output_dir.glob("*.jpg"))
-                ]
+                # Fallback: find assets in output directory - more efficient pattern matching
+                assets_list = []
+                for pattern in ["*.svg", "*.png", "*.jpg"]:
+                    assets_list.extend(str(f) for f in output_dir.glob(pattern))
+                # Alternative: use rglob with pattern matching
+                # assets_list = [str(f) for f in output_dir.rglob("*") if f.suffix.lower() in {'.svg', '.png', '.jpg'}]
 
             # Build report from result - use getattr to avoid type checker issues with Pydantic
             metadata_dict = getattr(result, 'metadata', {})
@@ -652,7 +653,12 @@ async def download_conversion_result(conversion_id: str) -> FileResponse:
         if not output_dir or not output_dir.exists():
             raise HTTPException(
                 status_code=410,
-                detail="Conversion files have been cleaned up"
+                detail={
+                    "error": "Conversion files have been cleaned up",
+                    "message": "The conversion files are no longer available. Files are retained for 24 hours after completion.",
+                    "retention_policy": "24 hours",
+                    "suggestion": "Please re-run the conversion if you need the files again."
+                }
             )
 
         # Create a ZIP file with the conversion results
