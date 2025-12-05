@@ -53,14 +53,14 @@ class Settings(BaseSettings):
     CONVERSION_RETENTION_HOURS: int = 24  # How long to keep conversion results
 
     # Security settings
-    SECRET_KEY: str = "your-secret-key-change-in-production"
+    SECRET_KEY: str = "dev-secret-key-change-in-production-min-64-chars-required-now"
 
     @field_validator("SECRET_KEY")
     @classmethod
     def validate_secret_key(cls, v: str, info) -> str:
         """Validate secret key is changed in production."""
         environment = info.data.get("ENVIRONMENT", "development")
-        if environment == "production" and v == "your-secret-key-change-in-production":
+        if environment == "production" and v == "dev-secret-key-change-in-production-min-64-chars-required-now":
             raise ValueError(
                 "SECRET_KEY must be changed in production! "
                 "Set SECRET_KEY environment variable to a secure random value."
