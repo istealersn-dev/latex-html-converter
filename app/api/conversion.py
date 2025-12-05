@@ -119,7 +119,7 @@ def _cleanup_old_conversions() -> int:
     Returns:
         Number of entries cleaned up
     """
-    cutoff_time = datetime.utcnow() - timedelta(hours=24)
+    cutoff_time = datetime.utcnow() - timedelta(hours=settings.CONVERSION_RETENTION_HOURS)
     cleaned_count = 0
 
     with _storage_lock:
@@ -440,15 +440,17 @@ async def convert_latex_to_html(
                 return response
 
             except ResourceLimitError as exc:
-                # Cleanup storage entry on resource limit error
-                _safe_remove_conversion(conversion_job_id)
+                # Cleanup storage entry on resource limit error (if job was created)
+                if 'conversion_job_id' in locals():
+                    _safe_remove_conversion(conversion_job_id)
                 raise HTTPException(
                     status_code=503,
                     detail=f"Service temporarily unavailable: {exc}"
                 )
             except OrchestrationError as exc:
-                # Cleanup storage entry on orchestration error
-                _safe_remove_conversion(conversion_job_id)
+                # Cleanup storage entry on orchestration error (if job was created)
+                if 'conversion_job_id' in locals():
+                    _safe_remove_conversion(conversion_job_id)
                 raise HTTPException(
                     status_code=500,
                     detail=f"Conversion failed: {exc}"
@@ -693,8 +695,8 @@ async def download_conversion_result(conversion_id: str) -> FileResponse:
                 status_code=410,
                 detail={
                     "error": "Conversion files have been cleaned up",
-                    "message": "The conversion files are no longer available. Files are retained for 24 hours after completion.",
-                    "retention_policy": "24 hours",
+                    "message": f"The conversion files are no longer available. Files are retained for {settings.CONVERSION_RETENTION_HOURS} hours after completion.",
+                    "retention_policy": f"{settings.CONVERSION_RETENTION_HOURS} hours",
                     "suggestion": "Please re-run the conversion if you need the files again."
                 }
             )
@@ -804,24 +806,8 @@ def _extract_archive(input_file: Path, temp_dir: Path, timeout: int = 300) -> Pa
     """
     import zipfile
     import tarfile
-    import signal
-    from contextlib import contextmanager
-
-    @contextmanager
-    def time_limit(seconds: int):
-        """Context manager to enforce time limit on operations."""
-        def signal_handler(signum, frame):
-            raise TimeoutError(f"Archive extraction timed out after {seconds} seconds")
-
-        # Set the signal handler and alarm
-        old_handler = signal.signal(signal.SIGALRM, signal_handler)
-        signal.alarm(seconds)
-        try:
-            yield
-        finally:
-            # Restore old handler and disable alarm
-            signal.alarm(0)
-            signal.signal(signal.SIGALRM, old_handler)
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+    from typing import Callable
 
     extracted_dir = temp_dir / "extracted"
     extracted_dir.mkdir(exist_ok=True)
@@ -838,44 +824,58 @@ def _extract_archive(input_file: Path, temp_dir: Path, timeout: int = 300) -> Pa
         except Exception:
             return False
 
+    def perform_extraction() -> Path:
+        """Perform the actual extraction (called with timeout)."""
+        if input_file.suffix.lower() == '.zip':
+            with zipfile.ZipFile(input_file, 'r') as zip_ref:
+                # Validate all paths before extraction
+                for member in zip_ref.namelist():
+                    member_path = extracted_dir / member
+                    if not is_safe_path(extracted_dir, member_path):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Archive contains unsafe path: {member} (potential zip slip attack)"
+                        )
+
+                # Safe to extract
+                zip_ref.extractall(extracted_dir)
+
+        elif input_file.suffix.lower() in ['.tar', '.gz'] or input_file.name.endswith('.tar.gz'):
+            with tarfile.open(input_file, 'r:*') as tar_ref:
+                # Validate all paths before extraction
+                for member in tar_ref.getmembers():
+                    member_path = extracted_dir / member.name
+                    if not is_safe_path(extracted_dir, member_path):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Archive contains unsafe path: {member.name} (potential zip slip attack)"
+                        )
+
+                    # Additional security: check for absolute paths
+                    if member.name.startswith('/') or member.name.startswith('..'):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Archive contains absolute or parent path: {member.name}"
+                        )
+
+                # Safe to extract
+                tar_ref.extractall(extracted_dir)
+        else:
+            raise ValueError(f"Unsupported archive format: {input_file.suffix}")
+
+        return extracted_dir
+
     try:
-        with time_limit(timeout):
-            if input_file.suffix.lower() == '.zip':
-                with zipfile.ZipFile(input_file, 'r') as zip_ref:
-                    # Validate all paths before extraction
-                    for member in zip_ref.namelist():
-                        member_path = extracted_dir / member
-                        if not is_safe_path(extracted_dir, member_path):
-                            raise HTTPException(
-                                status_code=400,
-                                detail=f"Archive contains unsafe path: {member} (potential zip slip attack)"
-                            )
-
-                    # Safe to extract
-                    zip_ref.extractall(extracted_dir)
-
-            elif input_file.suffix.lower() in ['.tar', '.gz'] or input_file.name.endswith('.tar.gz'):
-                with tarfile.open(input_file, 'r:*') as tar_ref:
-                    # Validate all paths before extraction
-                    for member in tar_ref.getmembers():
-                        member_path = extracted_dir / member.name
-                        if not is_safe_path(extracted_dir, member_path):
-                            raise HTTPException(
-                                status_code=400,
-                                detail=f"Archive contains unsafe path: {member.name} (potential zip slip attack)"
-                            )
-
-                        # Additional security: check for absolute paths
-                        if member.name.startswith('/') or member.name.startswith('..'):
-                            raise HTTPException(
-                                status_code=400,
-                                detail=f"Archive contains absolute or parent path: {member.name}"
-                            )
-
-                    # Safe to extract
-                    tar_ref.extractall(extracted_dir)
-            else:
-                raise ValueError(f"Unsupported archive format: {input_file.suffix}")
+        # Use ThreadPoolExecutor for cross-platform timeout support
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(perform_extraction)
+            try:
+                extracted_dir = future.result(timeout=timeout)
+            except FuturesTimeoutError:
+                raise HTTPException(
+                    status_code=408,
+                    detail=f"Archive extraction timed out after {timeout} seconds. File may be too large or corrupted."
+                )
 
         logger.info(f"Successfully extracted archive to: {extracted_dir}")
         return extracted_dir

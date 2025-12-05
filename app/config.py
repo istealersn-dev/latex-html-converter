@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     # Conversion settings
     CONVERSION_TIMEOUT: int = 300  # 5 minutes
     MAX_CONCURRENT_CONVERSIONS: int = 5
+    CONVERSION_RETENTION_HOURS: int = 24  # How long to keep conversion results
 
     # Security settings
     SECRET_KEY: str = "your-secret-key-change-in-production"
@@ -64,8 +65,8 @@ class Settings(BaseSettings):
                 "SECRET_KEY must be changed in production! "
                 "Set SECRET_KEY environment variable to a secure random value."
             )
-        if len(v) < 32:
-            raise ValueError("SECRET_KEY must be at least 32 characters long")
+        if len(v) < 64:
+            raise ValueError("SECRET_KEY must be at least 64 characters long for production security")
         return v
 
     @field_validator("ENVIRONMENT")

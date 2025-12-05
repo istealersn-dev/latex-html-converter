@@ -449,8 +449,8 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
         """Background cleanup loop."""
         while not self._shutdown_event.is_set():
             try:
-                # Clean up old jobs
-                self.cleanup_completed_jobs(older_than_hours=1)
+                # Clean up old jobs (using same retention period as conversion storage)
+                self.cleanup_completed_jobs(older_than_hours=settings.CONVERSION_RETENTION_HOURS)
 
                 # Wait for next cleanup cycle
                 self._shutdown_event.wait(self.cleanup_interval)
