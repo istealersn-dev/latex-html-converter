@@ -20,8 +20,8 @@ from app.api import conversion, health
 from app.config import settings
 from app.middleware import LoggingMiddleware
 
-# Setup templates
-templates = Jinja2Templates(directory="app/templates")
+# Setup templates (will be initialized in lifespan)
+templates = None
 
 
 def validate_tool_paths() -> None:
@@ -66,10 +66,16 @@ async def lifespan(app: FastAPI):
 
     Handles startup and shutdown events.
     """
+    global templates
+
     # Startup
     logger.info("Starting LaTeX → HTML5 Converter service")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info(f"Debug mode: {settings.DEBUG}")
+
+    # Initialize templates
+    templates = Jinja2Templates(directory=settings.TEMPLATES_DIR)
+    logger.info(f"Templates initialized from: {settings.TEMPLATES_DIR}")
 
     # Validate tool paths
     try:
@@ -163,9 +169,9 @@ def setup_routers(app: FastAPI) -> None:
     app.include_router(conversion.router, prefix="/api/v1", tags=["conversion"])
 
     # Mount static files if directory exists
-    static_dir = Path("app/static")
+    static_dir = Path(settings.STATIC_DIR)
     if static_dir.exists():
-        app.mount("/static", StaticFiles(directory="app/static"), name="static")
+        app.mount("/static", StaticFiles(directory=settings.STATIC_DIR), name="static")
 
 
 def setup_logging() -> None:

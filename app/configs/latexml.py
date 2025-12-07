@@ -157,6 +157,9 @@ class LaTeXMLSettings(BaseSettings):
         if self.parallel_processing:
             cmd.append("--parallel")
 
+        if self.cache_bindings:
+            cmd.append("--cache")
+
         # Disable unnecessary features for faster processing
         cmd.append("--nodefaultresources")  # Don't load default CSS/JS, we'll add our own
         cmd.append("--timestamp=0")  # Disable timestamp generation

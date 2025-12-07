@@ -635,8 +635,9 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
                 logger.warning(f"Project directory not found: {project_dir}")
                 return
 
-            # Define asset patterns to copy
-            asset_patterns = ["*.jpg", "*.jpeg", "*.png", "*.svg", "*.gif", "*.webp", "*.pdf"]
+            # Get asset patterns from config
+            from app.config import settings
+            asset_patterns = settings.ASSET_PATTERNS
             assets_copied = 0
 
             # Copy all image files from project directory
@@ -646,12 +647,25 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
                     if any(part.startswith('.') or part == '__MACOSX' for part in asset_file.parts):
                         continue
 
-                    # Copy to output directory root
+                    # Handle filename collisions by preserving relative path from project root
                     dest_file = job.output_dir / asset_file.name
-                    if not dest_file.exists():
-                        shutil.copy2(asset_file, dest_file)
-                        assets_copied += 1
-                        logger.debug(f"Copied asset: {asset_file.name}")
+                    if dest_file.exists():
+                        # If collision, preserve subdirectory structure
+                        try:
+                            rel_path = asset_file.relative_to(project_dir)
+                            dest_file = job.output_dir / rel_path
+                            dest_file.parent.mkdir(parents=True, exist_ok=True)
+                        except ValueError:
+                            # File is outside project_dir, use counter suffix
+                            counter = 1
+                            stem, suffix = asset_file.stem, asset_file.suffix
+                            while dest_file.exists():
+                                dest_file = job.output_dir / f"{stem}_{counter}{suffix}"
+                                counter += 1
+
+                    shutil.copy2(asset_file, dest_file)
+                    assets_copied += 1
+                    logger.debug(f"Copied asset: {asset_file.name} -> {dest_file.relative_to(job.output_dir)}")
 
             # Copy CSS files from latexml output to root
             latexml_dir = job.output_dir / "latexml"

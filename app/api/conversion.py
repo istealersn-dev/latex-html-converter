@@ -476,7 +476,7 @@ async def convert_latex_to_html(
 
 
 @router.get("/convert/jobs")
-async def list_conversion_jobs():
+async def list_conversion_jobs() -> dict[str, Any]:
     """
     List all conversion jobs with their current status.
 
