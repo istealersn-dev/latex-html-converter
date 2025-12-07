@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LaTeX to HTML Converter | Kriyadocs</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary-color: #2563eb;
+            --primary-dark: #1e40af;
+            --primary-light: #3b82f6;
+            --secondary-color: #06b6d4;
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --error-color: #ef4444;
+            --text-primary: #0f172a;
+            --text-secondary: #64748b;
+            --text-tertiary: #94a3b8;
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8fafc;
+            --bg-tertiary: #f1f5f9;
+            --border-color: #e2e8f0;
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            font-size: 14px;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .header {
+            margin-bottom: 32px;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+            letter-spacing: -0.025em;
+        }
+
+        .header p {
+            font-size: 14px;
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        .upload-section {
+            background: var(--bg-primary);
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .upload-area {
+            border: 2px dashed var(--border-color);
+            border-radius: 8px;
+            padding: 48px 24px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: var(--bg-secondary);
+        }
+
+        .upload-area:hover {
+            border-color: var(--primary-color);
+            background: #eff6ff;
+        }
+
+        .upload-area.dragging {
+            border-color: var(--primary-color);
+            background: #dbeafe;
+        }
+
+        .upload-icon {
+            width: 48px;
+            height: 48px;
+            margin: 0 auto 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-tertiary);
+            border-radius: 50%;
+            color: var(--primary-color);
+        }
+
+        .upload-icon svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        .upload-text {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+        }
+
+        .upload-hint {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .jobs-section {
+            background: var(--bg-primary);
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-sm);
+            overflow: hidden;
+        }
+
+        .jobs-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .jobs-header h2 {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            letter-spacing: -0.025em;
+        }
+
+        .refresh-btn {
+            background: transparent;
+            color: var(--primary-color);
+            border: 1px solid var(--border-color);
+            padding: 6px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            font-family: inherit;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .refresh-btn:hover {
+            background: var(--bg-secondary);
+            border-color: var(--primary-color);
+        }
+
+        .jobs-list {
+            padding: 16px 24px 24px;
+        }
+
+        .job-item {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+            transition: all 0.2s ease;
+            background: var(--bg-primary);
+        }
+
+        .job-item:hover {
+            border-color: var(--primary-light);
+            box-shadow: var(--shadow-md);
+        }
+
+        .job-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .job-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 12px;
+        }
+
+        .job-id {
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 12px;
+            color: var(--text-tertiary);
+            font-weight: 500;
+        }
+
+        .job-status {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+        }
+
+        .status-pending {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .status-running {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .status-completed {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status-failed {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary-color), var(--primary-light));
+            transition: width 0.3s ease;
+            border-radius: 3px;
+        }
+
+        .job-details {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+        }
+
+        .job-actions {
+            display: flex;
+            gap: 8px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .action-btn {
+            padding: 7px 14px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            font-family: inherit;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .action-btn:hover {
+            background: var(--bg-secondary);
+            border-color: var(--primary-color);
+            color: var(--primary-color);
+        }
+
+        .action-btn.primary {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+
+        .action-btn.primary:hover {
+            background: var(--primary-dark);
+            border-color: var(--primary-dark);
+            color: white;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 48px 20px;
+        }
+
+        .empty-icon {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-tertiary);
+            border-radius: 50%;
+            color: var(--text-tertiary);
+        }
+
+        .empty-icon svg {
+            width: 32px;
+            height: 32px;
+        }
+
+        .empty-text {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        .error-message {
+            margin-top: 12px;
+            padding: 12px;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 6px;
+            color: var(--error-color);
+            font-size: 13px;
+        }
+
+        .notification {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            padding: 12px 16px;
+            background: var(--bg-primary);
+            border-radius: 8px;
+            box-shadow: var(--shadow-lg);
+            border: 1px solid var(--border-color);
+            display: none;
+            z-index: 1000;
+            max-width: 400px;
+            font-size: 14px;
+        }
+
+        .notification.show {
+            display: block;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .notification.success {
+            border-left: 3px solid var(--success-color);
+        }
+
+        .notification.error {
+            border-left: 3px solid var(--error-color);
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>LaTeX → HTML Converter</h1>
+            <p>Convert LaTeX documents to clean, semantic HTML5 with high fidelity</p>
+        </div>
+
+        <div class="upload-section">
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                    </svg>
+                </div>
+                <div class="upload-text">Drop files here or click to browse</div>
+                <div class="upload-hint">Supported: ZIP, TAR.GZ, TAR • Max size: 50MB</div>
+                <input type="file" id="fileInput" class="file-input" accept=".zip,.tar.gz,.tar">
+            </div>
+        </div>
+
+        <div class="jobs-section">
+            <div class="jobs-header">
+                <h2>Conversion Jobs</h2>
+                <button class="refresh-btn" onclick="loadJobs()">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                    Refresh
+                </button>
+            </div>
+            <div class="jobs-list" id="jobsList">
+                <div class="empty-state">
+                    <div class="empty-icon">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                    </div>
+                    <p class="empty-text">No conversion jobs yet. Upload a file to get started.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="notification" id="notification"></div>
+
+    <script>
+        const API_BASE = '/api/v1';
+        let jobs = [];
+        let autoRefresh;
+
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragging');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragging');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragging');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileUpload(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileUpload(e.target.files[0]);
+            }
+        });
+
+        async function handleFileUpload(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                showNotification('Uploading file...', 'success');
+                const response = await fetch(`${API_BASE}/convert`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Upload failed');
+                }
+
+                const result = await response.json();
+                showNotification('Conversion started successfully', 'success');
+                fileInput.value = '';
+                await loadJobs();  // Wait for jobs to load
+                startAutoRefresh();
+            } catch (error) {
+                showNotification(error.message, 'error');
+            }
+        }
+
+        async function loadJobs() {
+            try {
+                const response = await fetch(`${API_BASE}/convert/jobs`);
+                if (!response.ok) throw new Error('Failed to load jobs');
+
+                const data = await response.json();
+                jobs = data.jobs || [];
+                console.log(`[${new Date().toLocaleTimeString()}] Loaded ${jobs.length} jobs:`, jobs.map(j => ({id: j.conversion_id.substring(0,8), status: j.status, progress: j.progress})));
+                renderJobs();
+            } catch (error) {
+                console.error('Error loading jobs:', error);
+            }
+        }
+
+        function renderJobs() {
+            const jobsList = document.getElementById('jobsList');
+
+            if (jobs.length === 0) {
+                jobsList.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                            </svg>
+                        </div>
+                        <p class="empty-text">No conversion jobs yet. Upload a file to get started.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            jobsList.innerHTML = jobs.map(job => `
+                <div class="job-item">
+                    <div class="job-header">
+                        <span class="job-id">${job.conversion_id}</span>
+                        <span class="job-status status-${job.status}">${job.status}</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${job.progress || 0}%"></div>
+                    </div>
+                    ${job.message && job.status !== 'completed' ? `
+                        <div style="padding: 8px 0; color: var(--text-secondary); font-size: 13px;">
+                            <strong>Current stage:</strong> ${job.message}
+                        </div>
+                    ` : ''}
+                    <div class="job-details">
+                        <span>${formatDate(job.created_at)}</span>
+                        <span class="job-timer" data-created="${job.created_at}" data-updated="${job.updated_at}" data-status="${job.status}">
+                            ${formatElapsedTime(job.created_at, job.updated_at, job.status)}
+                        </span>
+                        <span>${job.progress || 0}% complete</span>
+                    </div>
+                    ${job.status === 'completed' ? `
+                        <div class="job-actions">
+                            <a href="${API_BASE}/convert/${job.conversion_id}/download" class="action-btn primary">
+                                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                </svg>
+                                Download
+                            </a>
+                            <button onclick="navigator.clipboard.writeText('${job.conversion_id}')" class="action-btn">
+                                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                                </svg>
+                                Copy ID
+                            </button>
+                        </div>
+                    ` : ''}
+                    ${job.error_message ? `
+                        <div class="error-message">
+                            <strong>Error:</strong> ${job.error_message}
+                        </div>
+                    ` : ''}
+                </div>
+            `).join('');
+        }
+
+        function formatDate(dateString) {
+            // Parse UTC timestamp properly
+            const date = new Date(dateString.endsWith('Z') ? dateString : dateString + 'Z');
+            const now = new Date();
+            const diff = now - date;
+            const minutes = Math.floor(diff / 60000);
+            const hours = Math.floor(diff / 3600000);
+            const days = Math.floor(diff / 86400000);
+
+            if (minutes < 1) return 'Just now';
+            if (minutes < 60) return `${minutes}m ago`;
+            if (hours < 24) return `${hours}h ago`;
+            if (days < 7) return `${days}d ago`;
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        }
+
+        function formatElapsedTime(createdAt, updatedAt, status) {
+            // Parse UTC timestamps
+            const startTime = new Date(createdAt.endsWith('Z') ? createdAt : createdAt + 'Z');
+
+            // For completed jobs, show the duration between created and updated
+            // For active jobs, show elapsed time from creation to now
+            const isCompleted = status === 'completed' || status === 'failed' || status === 'cancelled';
+            const endTime = isCompleted
+                ? new Date(updatedAt.endsWith('Z') ? updatedAt : updatedAt + 'Z')
+                : new Date(); // Current browser time in UTC
+
+            const elapsed = Math.floor((endTime - startTime) / 1000); // seconds
+
+            // Handle negative elapsed time (clock skew) - show as 0
+            const safeElapsed = Math.max(0, elapsed);
+
+            // Format the duration
+            if (safeElapsed < 1 && !isCompleted) {
+                return 'Starting...';
+            } else if (safeElapsed < 1 && isCompleted) {
+                return 'Duration: <1s';
+            } else if (safeElapsed < 60) {
+                return isCompleted ? `Duration: ${safeElapsed}s` : `Running: ${safeElapsed}s`;
+            } else if (safeElapsed < 3600) {
+                const mins = Math.floor(safeElapsed / 60);
+                const secs = safeElapsed % 60;
+                return isCompleted
+                    ? `Duration: ${mins}m ${secs}s`
+                    : `Running: ${mins}m ${secs}s`;
+            } else {
+                const hours = Math.floor(safeElapsed / 3600);
+                const mins = Math.floor((safeElapsed % 3600) / 60);
+                return isCompleted
+                    ? `Duration: ${hours}h ${mins}m`
+                    : `Running: ${hours}h ${mins}m`;
+            }
+        }
+
+        function updateTimers() {
+            const timers = document.querySelectorAll('.job-timer');
+            const now = new Date();
+
+            timers.forEach(timer => {
+                const created = timer.getAttribute('data-created');
+                const status = timer.getAttribute('data-status');
+
+                // Only update timer if job is still running (not completed)
+                if (status === 'pending' || status === 'processing') {
+                    // For running jobs, calculate elapsed time from created to NOW
+                    const createdWithZ = created.endsWith('Z') ? created : created + 'Z';
+                    const startTime = new Date(createdWithZ);
+                    const elapsed = Math.max(0, Math.floor((now - startTime) / 1000));
+
+                    // Debug logging
+                    if (elapsed < 2) {
+                        console.log('[Timer Debug]', {
+                            created: created,
+                            createdWithZ: createdWithZ,
+                            startTime: startTime.toISOString(),
+                            now: now.toISOString(),
+                            elapsed: elapsed,
+                            status: status
+                        });
+                    }
+
+                    if (elapsed < 1) {
+                        timer.textContent = 'Starting...';
+                    } else if (elapsed < 60) {
+                        timer.textContent = `Running: ${elapsed}s`;
+                    } else if (elapsed < 3600) {
+                        const mins = Math.floor(elapsed / 60);
+                        const secs = elapsed % 60;
+                        timer.textContent = `Running: ${mins}m ${secs}s`;
+                    } else {
+                        const hours = Math.floor(elapsed / 3600);
+                        const mins = Math.floor((elapsed % 3600) / 60);
+                        timer.textContent = `Running: ${hours}h ${mins}m`;
+                    }
+                }
+            });
+        }
+
+        function showNotification(message, type) {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.className = `notification ${type} show`;
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
+
+        function startAutoRefresh() {
+            if (autoRefresh) clearInterval(autoRefresh);
+
+            let refreshCount = 0;
+            const maxAlwaysRefresh = 5; // Always refresh first 10 seconds
+
+            // Refresh every 2 seconds when there are active jobs
+            autoRefresh = setInterval(() => {
+                refreshCount++;
+                const hasRunningJobs = jobs.some(j => j.status === 'pending' || j.status === 'processing');
+
+                // Always refresh for first few cycles, then only if jobs are running
+                if (refreshCount <= maxAlwaysRefresh || hasRunningJobs) {
+                    loadJobs();
+                }
+            }, 2000);
+        }
+
+        function startTimerUpdate() {
+            // Update timers every second for live ticking
+            setInterval(() => {
+                updateTimers();
+            }, 1000);
+        }
+
+        // Load jobs on page load
+        loadJobs();
+        startAutoRefresh();
+        startTimerUpdate();
+    </script>
+</body>
+</html>

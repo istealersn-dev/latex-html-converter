@@ -353,12 +353,15 @@ class HTMLPostProcessor:
     def _enhance_html(self, soup: BeautifulSoup, results: dict[str, Any]) -> BeautifulSoup:
         """Enhance HTML with additional features."""
         try:
+            # Fix LaTeXML artifacts from missing custom class
+            self._fix_latexml_artifacts(soup)
+
             # Fix image paths to point to correct location
             self._fix_image_paths(soup)
 
             # Process mathematical expressions for MathJax compatibility
             self._process_math_expressions(soup)
-            
+
             # Add MathJax support if math is present
             if soup.find(['math', 'm:math']) or soup.find_all(['span', 'div'], class_=['math', 'math-display']):
                 self._add_mathjax_support(soup)
@@ -380,6 +383,181 @@ class HTMLPostProcessor:
             results["errors"].append(error_msg)
             logger.error(error_msg)
             return soup
+
+    def _fix_latexml_artifacts(self, soup: BeautifulSoup) -> None:
+        """Fix artifacts from LaTeXML processing custom classes without proper bindings."""
+
+        # Fix 1: Remove '12pt', '0pt', '11pt' etc. from beginning of headings and titles
+        # These come from \fontsize commands that LaTeXML doesn't process properly
+        for heading in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']):
+            if heading.string:
+                # Remove leading font size declarations
+                cleaned_text = re.sub(r'^\d+pt\s*', '', heading.string)
+                if cleaned_text != heading.string:
+                    heading.string.replace_with(cleaned_text)
+                    logger.debug(f"Cleaned heading: {heading.string} -> {cleaned_text}")
+            else:
+                # Handle headings with child elements
+                for text_node in heading.find_all(string=True, recursive=False):
+                    if isinstance(text_node, NavigableString):
+                        cleaned_text = re.sub(r'^\d+pt\s*', '', str(text_node))
+                        if cleaned_text != str(text_node):
+                            text_node.replace_with(cleaned_text)
+                            logger.debug(f"Cleaned heading text: {text_node} -> {cleaned_text}")
+
+        # Fix 2: Unwrap excessive bold formatting (ltx_text ltx_font_bold wrapping entire paragraphs)
+        # LaTeXML sometimes wraps entire sections in bold when it should only be headings
+        for p in soup.find_all('p'):
+            # Find all bold spans that are direct children of the paragraph
+            bold_spans = p.find_all('span', class_='ltx_text ltx_font_bold', recursive=False)
+
+            # Strategy 1: Single bold span wrapping entire paragraph
+            if len(bold_spans) == 1:
+                span = bold_spans[0]
+                if len(list(p.children)) == 1 and span.get_text(strip=True) == p.get_text(strip=True):
+                    # This is likely incorrect - unwrap it
+                    span['class'] = [c for c in span.get('class', []) if c not in ['ltx_font_bold']]
+                    if not span.get('class'):
+                        span.unwrap()
+                    logger.debug("Unwrapped paragraph-level bold formatting")
+
+            # Strategy 2: Multiple bold spans covering most of paragraph (likely incorrect)
+            elif len(bold_spans) > 0:
+                # Calculate what percentage of paragraph is bold
+                total_text = p.get_text(strip=True)
+                bold_text = ''.join(span.get_text(strip=True) for span in bold_spans)
+
+                # If more than 80% of paragraph is bold, it's likely a formatting error
+                if len(total_text) > 0 and len(bold_text) / len(total_text) > 0.8:
+                    for span in bold_spans:
+                        # Check if this span has citations or other important elements
+                        if not span.find(['cite', 'a', 'em', 'strong']):
+                            span['class'] = [c for c in span.get('class', []) if c not in ['ltx_font_bold']]
+                            if not span.get('class'):
+                                span.unwrap()
+                    logger.debug(f"Unwrapped excessive bold formatting covering {len(bold_text)/len(total_text)*100:.0f}% of paragraph")
+
+        # Fix 3: Remove LaTeXML error/warning messages from HTML
+        # Remove yellow "Unknown environment" warnings and other LaTeXML artifacts
+        self._remove_latexml_warnings(soup)
+
+        # Fix 4: Remove bold formatting from inside citations
+        # Citations should not have bold formatting
+        for cite in soup.find_all('cite'):
+            # Remove all bold spans inside citations
+            for bold_span in cite.find_all('span', class_='ltx_font_bold'):
+                bold_span.unwrap()
+                logger.debug("Removed bold formatting from citation")
+
+        # Fix 5: Fix misplaced citation tags that wrap too much content
+        # LaTeXML sometimes puts the entire text in <cite> instead of just the citation
+        for cite in soup.find_all('cite'):
+            # Check if cite contains too much text (likely incorrect)
+            cite_text = cite.get_text(strip=True)
+            # Citations should be relatively short (author + year, typically < 50 chars)
+            if len(cite_text) > 100:
+                # This is likely wrapping too much - try to extract just the citation
+                # Look for patterns like "(Author, YYYY)" or "Author et al., YYYY"
+                citation_match = re.search(r'\([^()]{0,50}?,\s*\d{4}[a-z]?\)', cite_text)
+                if citation_match:
+                    # Found a likely citation - keep only that part in cite
+                    citation_str = citation_match.group()
+                    # Split content: before citation, citation, after citation
+                    before = cite_text[:citation_match.start()]
+                    after = cite_text[citation_match.end():]
+
+                    # Create new structure
+                    parent = cite.parent
+                    if parent:
+                        # Insert before text
+                        if before.strip():
+                            parent.insert(parent.index(cite), before)
+                        # Update cite to contain only the citation
+                        cite.clear()
+                        cite.string = citation_str
+                        # Insert after text
+                        if after.strip():
+                            parent.insert(parent.index(cite) + 1, after)
+                        logger.debug(f"Fixed oversized citation tag: {cite_text[:50]}...")
+                else:
+                    # No clear citation pattern - unwrap the cite tag entirely
+                    logger.debug(f"Unwrapping malformed cite tag: {cite_text[:50]}...")
+                    cite.unwrap()
+
+    def _remove_latexml_warnings(self, soup: BeautifulSoup) -> None:
+        """Remove LaTeXML warning and error messages from HTML output."""
+
+        # Remove elements with ltx_ERROR class (LaTeXML errors)
+        for error_elem in soup.find_all(class_=re.compile(r'ltx_ERROR')):
+            logger.debug(f"Removing LaTeXML error: {error_elem.get_text()[:100]}")
+            error_elem.decompose()
+
+        # Remove elements with specific error/warning patterns
+        warning_patterns = [
+            'Unknown environment',
+            'Missing',
+            'Undefined control sequence',
+            'Error:',
+            'Warning:'
+        ]
+
+        # Remove spans and divs that contain warning text
+        for elem in soup.find_all(['span', 'div']):
+            elem_text = elem.get_text(strip=True)
+            # Check if element has yellow/orange background (typical for warnings)
+            style = elem.get('style', '')
+            has_warning_color = any(color in style.lower() for color in ['yellow', 'orange', '#ff', '#f0'])
+
+            # Check if text matches warning patterns
+            has_warning_text = any(pattern in elem_text for pattern in warning_patterns)
+
+            if (has_warning_color and has_warning_text) or \
+               (has_warning_text and len(elem_text) < 200 and elem.name == 'span'):
+                logger.debug(f"Removing warning element: {elem_text[:100]}")
+                # Replace with empty span to preserve document structure
+                elem.decompose()
+
+        # Specifically handle overpic environment warnings
+        # overpic is a LaTeX package for overlaying text on images
+        # When missing, replace the warning with the underlying figure if available
+        for elem in soup.find_all(string=re.compile(r"Unknown environment.*overpic", re.IGNORECASE)):
+            parent = elem.parent
+            if parent:
+                # Try to find a figure nearby that should have been used
+                figure_elem = parent.find_next('figure') or parent.find_previous('figure')
+                if figure_elem:
+                    # The figure exists, just remove the warning
+                    elem.extract()
+                    logger.debug("Removed overpic warning, figure present")
+                else:
+                    # No figure found - this is a missing graphic
+                    # Replace with a placeholder or remove entirely
+                    elem.replace_with('[Figure unavailable: overpic environment not supported]')
+                    logger.warning("overpic environment not supported, placeholder inserted")
+
+        # Handle raw LaTeX overpic code that LaTeXML couldn't process
+        # These appear as text inside ltx_picture spans
+        for span in soup.find_all('span', class_='ltx_picture'):
+            span_text = span.get_text(strip=True)
+            # Check if this span contains raw overpic LaTeX code
+            if '\\begin{overpic}' in span_text:
+                # Extract the figure filename from the overpic command
+                # Pattern: \begin{overpic}[...]{FigureX.pdf}
+                figure_match = re.search(r'\\begin\{overpic\}[^{]*\{([^}]+)\}', span_text)
+                if figure_match:
+                    figure_filename = figure_match.group(1)
+                    # Create an img tag to replace the raw LaTeX
+                    img_tag = soup.new_tag('img', src=figure_filename, alt=f"Figure: {figure_filename}")
+                    img_tag['loading'] = 'lazy'
+                    img_tag['style'] = 'max-width: 100%; height: auto;'
+                    span.clear()
+                    span.append(img_tag)
+                    logger.debug(f"Converted overpic LaTeX to img tag: {figure_filename}")
+                else:
+                    # Couldn't extract filename, remove the raw LaTeX
+                    span.clear()
+                    span.append('[Figure: overpic environment not fully supported]')
+                    logger.warning(f"Could not extract figure from overpic: {span_text[:100]}")
 
     def _fix_image_paths(self, soup: BeautifulSoup) -> None:
         """Fix image paths to point to correct location relative to output file."""
@@ -564,11 +742,122 @@ class HTMLPostProcessor:
         if head:
             style = soup.new_tag('style', attrs={'type': 'text/css'})
             style.string = '''
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+            /* Base typography */
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                line-height: 1.6;
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 20px;
+            }
             .math { font-family: "Times New Roman", serif; }
-            img { max-width: 100%; height: auto; }
-            table { border-collapse: collapse; width: 100%; }
-            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+
+            /* Images - responsive and centered */
+            img {
+                max-width: 100%;
+                height: auto;
+                display: block;
+                margin: 0 auto;
+            }
+            .ltx_graphics {
+                max-width: 100%;
+                height: auto;
+            }
+
+            /* Figures - centered with proper spacing */
+            figure.ltx_figure {
+                margin: 2em auto;
+                text-align: center;
+                page-break-inside: avoid;
+            }
+            figure.ltx_figure_panel {
+                display: inline-block;
+                margin: 0.5em;
+                vertical-align: top;
+            }
+
+            /* Multi-panel figures - flexbox layout */
+            .ltx_flex_figure {
+                display: flex;
+                justify-content: center;
+                align-items: flex-start;
+                flex-wrap: wrap;
+                gap: 1em;
+                margin: 1em 0;
+            }
+            .ltx_flex_cell {
+                flex: 1;
+                min-width: 200px;
+                max-width: 400px;
+            }
+
+            /* Figure captions */
+            figcaption {
+                margin-top: 0.5em;
+                font-size: 0.9em;
+                color: #333;
+                text-align: center;
+            }
+            figcaption .ltx_tag_figure {
+                font-weight: bold;
+            }
+
+            /* Tables */
+            table {
+                border-collapse: collapse;
+                width: 100%;
+                margin: 1.5em auto;
+                max-width: 100%;
+            }
+            th, td {
+                border: 1px solid #ddd;
+                padding: 8px;
+                text-align: left;
+            }
+            th {
+                background-color: #f5f5f5;
+                font-weight: bold;
+            }
+            .ltx_table {
+                margin: 2em auto;
+                text-align: center;
+            }
+
+            /* Alignment utilities */
+            .ltx_align_center {
+                text-align: center;
+                margin-left: auto;
+                margin-right: auto;
+            }
+            .ltx_centering {
+                text-align: center;
+            }
+
+            /* Landscape images */
+            .ltx_img_landscape {
+                width: auto;
+                max-width: 100%;
+            }
+
+            /* Float wrappers */
+            .ltx_float {
+                margin: 1.5em auto;
+                padding: 1em;
+            }
+            .ltx_float.ltx_framed {
+                border: 1px solid #ddd;
+                background: #fafafa;
+            }
+
+            /* Responsive design */
+            @media (max-width: 768px) {
+                .ltx_flex_figure {
+                    flex-direction: column;
+                }
+                .ltx_flex_cell {
+                    max-width: 100%;
+                }
+            }
             '''
             head.append(style)
 
@@ -708,20 +997,20 @@ class HTMLPostProcessor:
     def _find_image_assets(self, soup: BeautifulSoup) -> list[dict[str, Any]]:
         """Find image assets that could be converted to SVG."""
         image_assets = []
-        
+
         # Look for images
         for img in soup.find_all('img', src=True):
             src = img.get('src', '')
-            # Only convert certain image types
-            if src.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+            # Convert PDF images to SVG, skip other raster formats
+            if src.lower().endswith('.pdf'):
                 image_assets.append({
                     'element': img,
-                    'type': 'image',
+                    'type': 'pdf_image',
                     'src': src,
                     'id': img.get('id', ''),
                     'class': img.get('class', [])
                 })
-        
+
         return image_assets
 
     def _convert_tikz_diagrams(self, tikz_diagrams: list[dict[str, Any]], assets_dir: Path, results: dict[str, Any]) -> None:
@@ -820,9 +1109,66 @@ class HTMLPostProcessor:
             })
 
     def _convert_image_assets(self, image_assets: list[dict[str, Any]], assets_dir: Path, results: dict[str, Any]) -> None:
-        """Convert image assets to SVG (placeholder for future implementation)."""
-        # TODO: Implement image to SVG conversion
-        logger.info("Image to SVG conversion not yet implemented for %d assets", len(image_assets))
+        """Convert PDF image assets to SVG."""
+        try:
+            for i, img_asset in enumerate(image_assets):
+                if img_asset['type'] != 'pdf_image':
+                    continue
+
+                # Get the source PDF path
+                src = img_asset['src']
+                pdf_path = self._html_file_path.parent / src if self._html_file_path else Path(src)
+
+                if not pdf_path.exists():
+                    logger.warning(f"PDF image not found: {pdf_path}")
+                    results.setdefault("failed_assets", []).append({
+                        "type": "pdf_image",
+                        "original": src,
+                        "error": "File not found"
+                    })
+                    continue
+
+                try:
+                    # Convert PDF to SVG
+                    conversion_result = self.asset_conversion_service.pdf_service.convert_pdf_to_svg(
+                        pdf_file=pdf_path,
+                        output_dir=assets_dir,
+                        options={"timeout": 60}
+                    )
+
+                    if conversion_result.get("success"):
+                        svg_file = Path(conversion_result["output_file"])
+                        if svg_file.exists():
+                            # Update img src to point to SVG
+                            relative_svg_path = svg_file.relative_to(self._html_file_path.parent if self._html_file_path else Path.cwd())
+                            img_asset['element']['src'] = str(relative_svg_path)
+
+                            results.setdefault("converted_assets", []).append({
+                                "type": "pdf_image",
+                                "original": src,
+                                "svg_file": str(svg_file),
+                                "success": True
+                            })
+                            logger.info(f"Converted PDF image to SVG: {src} -> {relative_svg_path}")
+                        else:
+                            raise Exception("SVG file not created")
+                    else:
+                        raise Exception("Conversion failed")
+
+                except Exception as exc:
+                    logger.error(f"Failed to convert PDF image {src}: {exc}")
+                    results.setdefault("failed_assets", []).append({
+                        "type": "pdf_image",
+                        "original": src,
+                        "error": str(exc)
+                    })
+
+        except Exception as exc:
+            logger.error("Image asset conversion failed: %s", exc)
+            results.setdefault("failed_assets", []).append({
+                "type": "image",
+                "error": str(exc)
+            })
 
     def _replace_element_with_svg(self, element, svg_file: Path) -> None:
         """Replace an HTML element with an SVG element."""
