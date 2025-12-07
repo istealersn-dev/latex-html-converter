@@ -26,7 +26,9 @@ class LaTeXMLSettings(BaseSettings):
     # Processing options
     strict_mode: bool = Field(default=False, description="Enable strict error handling")
     verbose_output: bool = Field(default=False, description="Enable verbose output")
-    include_comments: bool = Field(default=True, description="Include comments in output")
+    include_comments: bool = Field(default=False, description="Include comments in output")
+    parallel_processing: bool = Field(default=True, description="Enable parallel processing")
+    cache_bindings: bool = Field(default=True, description="Cache LaTeXML bindings for faster processing")
 
     # Path settings
     temp_dir: Path | None = Field(default=None, description="Temporary directory for processing")
@@ -47,7 +49,7 @@ class LaTeXMLSettings(BaseSettings):
 
     # LaTeXML-specific options
     preload_modules: list[str] = Field(
-        default=["amsmath", "amssymb", "graphicx"],
+        default=["amsmath", "amssymb", "graphicx", "overpic"],
         description="LaTeXML modules to preload"
     )
     preamble_file: Path | None = Field(
@@ -151,6 +153,17 @@ class LaTeXMLSettings(BaseSettings):
         if not self.include_comments:
             cmd.append("--nocomments")
 
+        # Performance optimizations
+        if self.parallel_processing:
+            cmd.append("--parallel")
+
+        if self.cache_bindings:
+            cmd.append("--cache")
+
+        # Disable unnecessary features for faster processing
+        cmd.append("--nodefaultresources")  # Don't load default CSS/JS, we'll add our own
+        cmd.append("--timestamp=0")  # Disable timestamp generation
+
         # Preload modules
         for module in self.preload_modules:
             cmd.extend(["--preload", module])
@@ -203,7 +216,7 @@ class LaTeXMLConversionOptions(BaseModel):
     strict_mode: bool = Field(default=False, description="Strict error handling")
     verbose: bool = Field(default=False, description="Verbose output")
     preload_modules: list[str] = Field(
-        default_factory=lambda: ["amsmath", "amssymb", "graphicx"],
+        default_factory=lambda: ["amsmath", "amssymb", "graphicx", "overpic"],
         description="Modules to preload"
     )
     custom_preamble: str | None = Field(

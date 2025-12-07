@@ -72,10 +72,16 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
         """
         from app.config import settings
         from app.configs.latexml import LaTeXMLSettings
+        from app.services.assets import AssetConversionService
+
         self.tectonic_service = tectonic_service or PDFLaTeXService(pdflatex_path=settings.PDFLATEX_PATH)
         # Use LaTeXMLSettings() to pick up environment variables
         self.latexml_service = latexml_service or LaTeXMLService(settings=LaTeXMLSettings())
-        self.html_processor = html_processor or HTMLPostProcessor()
+
+        # Initialize asset conversion service for PDF -> PNG conversion
+        asset_service = AssetConversionService()
+        self.html_processor = html_processor or HTMLPostProcessor(asset_conversion_service=asset_service)
+
         self.file_discovery = file_discovery or FileDiscoveryService()
         self.package_manager = package_manager or PackageManagerService()
 
@@ -538,6 +544,9 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
                 options=job.options.get("post_processing_options", {})
             )
 
+            # Copy figures and assets from project directory to output
+            self._copy_project_assets(job)
+
             # Update stage
             stage.status = ConversionStatus.COMPLETED
             stage.completed_at = datetime.utcnow()
@@ -609,6 +618,69 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
                 f"Output validation failed: {exc}",
                 "validation"
             )
+
+    def _copy_project_assets(self, job: ConversionJob) -> None:
+        """Copy figures, images, and CSS from project directory to output."""
+        import shutil
+
+        try:
+            # Get project directory from metadata
+            if "project_structure" in job.metadata and "project_dir" in job.metadata["project_structure"]:
+                project_dir = Path(job.metadata["project_structure"]["project_dir"])
+            else:
+                # Fallback: use input file parent
+                project_dir = job.input_file.parent if job.input_file.is_file() else job.input_file
+
+            if not project_dir.exists():
+                logger.warning(f"Project directory not found: {project_dir}")
+                return
+
+            # Get asset patterns from config
+            from app.config import settings
+            asset_patterns = settings.ASSET_PATTERNS
+            assets_copied = 0
+
+            # Copy all image files from project directory
+            for pattern in asset_patterns:
+                for asset_file in project_dir.rglob(pattern):
+                    # Skip hidden directories and __MACOSX
+                    if any(part.startswith('.') or part == '__MACOSX' for part in asset_file.parts):
+                        continue
+
+                    # Handle filename collisions by preserving relative path from project root
+                    dest_file = job.output_dir / asset_file.name
+                    if dest_file.exists():
+                        # If collision, preserve subdirectory structure
+                        try:
+                            rel_path = asset_file.relative_to(project_dir)
+                            dest_file = job.output_dir / rel_path
+                            dest_file.parent.mkdir(parents=True, exist_ok=True)
+                        except ValueError:
+                            # File is outside project_dir, use counter suffix
+                            counter = 1
+                            stem, suffix = asset_file.stem, asset_file.suffix
+                            while dest_file.exists():
+                                dest_file = job.output_dir / f"{stem}_{counter}{suffix}"
+                                counter += 1
+
+                    shutil.copy2(asset_file, dest_file)
+                    assets_copied += 1
+                    logger.debug(f"Copied asset: {asset_file.name} -> {dest_file.relative_to(job.output_dir)}")
+
+            # Copy CSS files from latexml output to root
+            latexml_dir = job.output_dir / "latexml"
+            if latexml_dir.exists():
+                for css_file in latexml_dir.glob("*.css"):
+                    dest_file = job.output_dir / css_file.name
+                    if not dest_file.exists():
+                        shutil.copy2(css_file, dest_file)
+                        logger.debug(f"Copied CSS: {css_file.name}")
+
+            logger.info(f"Copied {assets_copied} assets to output directory")
+
+        except Exception as exc:
+            logger.warning(f"Failed to copy project assets: {exc}")
+            # Don't fail the conversion if asset copying fails
 
     def _calculate_quality_score(self, job: ConversionJob) -> float:
         """Calculate quality score for the conversion."""

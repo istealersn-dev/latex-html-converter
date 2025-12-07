@@ -7,14 +7,21 @@ middleware, and routing for the LaTeX to HTML5 conversion service.
 
 import uvicorn
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from pathlib import Path
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse
 from loguru import logger
 
 from app.api import conversion, health
 from app.config import settings
 from app.middleware import LoggingMiddleware
+
+# Setup templates (will be initialized in lifespan)
+templates = None
 
 
 def validate_tool_paths() -> None:
@@ -59,10 +66,16 @@ async def lifespan(app: FastAPI):
 
     Handles startup and shutdown events.
     """
+    global templates
+
     # Startup
     logger.info("Starting LaTeX → HTML5 Converter service")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info(f"Debug mode: {settings.DEBUG}")
+
+    # Initialize templates
+    templates = Jinja2Templates(directory=settings.TEMPLATES_DIR)
+    logger.info(f"Templates initialized from: {settings.TEMPLATES_DIR}")
 
     # Validate tool paths
     try:
@@ -145,8 +158,20 @@ def setup_routers(app: FastAPI) -> None:
     Args:
         app: FastAPI application instance
     """
+    # Web UI route
+    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+    async def index(request: Request):
+        """Serve the web UI."""
+        return templates.TemplateResponse("index.html", {"request": request})
+
+    # API routes
     app.include_router(health.router, prefix="/api/v1", tags=["health"])
     app.include_router(conversion.router, prefix="/api/v1", tags=["conversion"])
+
+    # Mount static files if directory exists
+    static_dir = Path(settings.STATIC_DIR)
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=settings.STATIC_DIR), name="static")
 
 
 def setup_logging() -> None:

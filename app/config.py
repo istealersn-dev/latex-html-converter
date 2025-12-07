@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "uploads"
     OUTPUT_DIR: str = "outputs"
 
+    # Web UI settings
+    TEMPLATES_DIR: str = "app/templates"
+    STATIC_DIR: str = "app/static"
+
+    # Asset handling settings
+    ASSET_PATTERNS: list[str] = ["*.jpg", "*.jpeg", "*.png", "*.svg", "*.gif", "*.webp", "*.pdf"]
+
     # External tools settings
     TECTONIC_PATH: str = "/usr/local/bin/tectonic"
     PDFLATEX_PATH: str = "/usr/bin/pdflatex"  # Docker default, override with env var

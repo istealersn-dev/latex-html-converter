@@ -63,11 +63,14 @@ WORKDIR /app
 # Copy Poetry files
 COPY pyproject.toml ./
 
-# Configure Poetry to not create virtualenvs and install dependencies
-# Use installer.no-binary to handle system-managed Python environment
+# Configure Poetry and install export plugin
 RUN poetry config virtualenvs.create false && \
     poetry config installer.max-workers 10 && \
-    PIP_BREAK_SYSTEM_PACKAGES=1 poetry install --only=main --no-interaction --no-ansi --no-root
+    poetry self add poetry-plugin-export
+
+# Export dependencies and install with pip using --ignore-installed to handle system packages
+RUN poetry export -f requirements.txt --output requirements.txt --without-hashes --only=main && \
+    pip3 install --break-system-packages --ignore-installed -r requirements.txt --no-cache-dir
 
 # Copy application code
 COPY . .
