@@ -7,14 +7,21 @@ middleware, and routing for the LaTeX to HTML5 conversion service.
 
 import uvicorn
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from pathlib import Path
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse
 from loguru import logger
 
 from app.api import conversion, health
 from app.config import settings
 from app.middleware import LoggingMiddleware
+
+# Setup templates
+templates = Jinja2Templates(directory="app/templates")
 
 
 def validate_tool_paths() -> None:
@@ -145,8 +152,20 @@ def setup_routers(app: FastAPI) -> None:
     Args:
         app: FastAPI application instance
     """
+    # Web UI route
+    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+    async def index(request: Request):
+        """Serve the web UI."""
+        return templates.TemplateResponse("index.html", {"request": request})
+
+    # API routes
     app.include_router(health.router, prefix="/api/v1", tags=["health"])
     app.include_router(conversion.router, prefix="/api/v1", tags=["conversion"])
+
+    # Mount static files if directory exists
+    static_dir = Path("app/static")
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 
 def setup_logging() -> None:

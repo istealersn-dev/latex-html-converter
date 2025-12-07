@@ -225,7 +225,7 @@ def _create_result_zip(output_dir: Path, output_zip: Path) -> None:
                 if latexml_html.exists():
                     html_file = latexml_html
                     html_in_latexml = True
-            
+
             if html_file.exists():
                 # Preserve directory structure: if HTML is in latexml/, add it as latexml/main.html
                 # This ensures image paths in the HTML (like figures/fig.svg) match the ZIP structure
@@ -235,15 +235,20 @@ def _create_result_zip(output_dir: Path, output_zip: Path) -> None:
                     # final.html goes to root of ZIP
                     zipf.write(html_file, html_file.name)
 
-            # Add assets from output directory and subdirectories
+            # Add CSS files
+            css_patterns = ["*.css"]
+            for pattern in css_patterns:
+                for css_file in output_dir.rglob(pattern):
+                    if css_file != output_zip:
+                        zipf.write(css_file, css_file.relative_to(output_dir))
+
+            # Add all image/figure formats
             # Preserve relative paths to maintain directory structure
-            for asset_file in output_dir.rglob("*.svg"):
-                if asset_file != output_zip and asset_file != html_file:  # Don't include the zip file itself or the HTML file
-                    zipf.write(asset_file, asset_file.relative_to(output_dir))
-            
-            for asset_file in output_dir.rglob("*.png"):
-                if asset_file != output_zip and asset_file != html_file:
-                    zipf.write(asset_file, asset_file.relative_to(output_dir))
+            image_patterns = ["*.svg", "*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "*.pdf"]
+            for pattern in image_patterns:
+                for asset_file in output_dir.rglob(pattern):
+                    if asset_file != output_zip and asset_file != html_file:
+                        zipf.write(asset_file, asset_file.relative_to(output_dir))
 
         logger.info(f"Created result ZIP: {output_zip}")
     except Exception as exc:
@@ -468,6 +473,76 @@ async def convert_latex_to_html(
     except Exception as exc:
         logger.error(f"Conversion failed: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Conversion failed: {str(exc)}")
+
+
+@router.get("/convert/jobs")
+async def list_conversion_jobs():
+    """
+    List all conversion jobs with their current status.
+
+    Returns a list of all conversion jobs sorted by creation time (newest first).
+    """
+    try:
+        orchestrator = get_orchestrator()
+        job_list = []
+
+        with _storage_lock:
+            conversion_ids = list(_conversion_storage.keys())
+
+        # Get status for each job
+        for conversion_id in conversion_ids:
+            try:
+                status = orchestrator.get_job_status(conversion_id)
+                if not status:
+                    continue
+
+                progress = orchestrator.get_job_progress(conversion_id)
+                job_result = orchestrator.get_job_result(conversion_id)
+
+                created_at = datetime.utcnow()
+                if job_result:
+                    created_at = job_result.created_at
+
+                # Map orchestrator status to API status
+                status_mapping = {
+                    ConversionStatusEnum.PENDING: ConversionStatus.PENDING,
+                    ConversionStatusEnum.RUNNING: ConversionStatus.PROCESSING,
+                    ConversionStatusEnum.COMPLETED: ConversionStatus.COMPLETED,
+                    ConversionStatusEnum.FAILED: ConversionStatus.FAILED,
+                    ConversionStatusEnum.CANCELLED: ConversionStatus.CANCELLED,
+                }
+                api_status = status_mapping.get(status, ConversionStatus.PENDING)
+                progress_percentage = progress.progress_percentage if progress else 0.0
+                message = progress.message if progress and progress.message else f"Status: {status.value}"
+
+                error_message = None
+                if status == ConversionStatusEnum.FAILED and job_result and job_result.errors:
+                    error_message = "; ".join(job_result.errors)
+
+                job_list.append({
+                    "conversion_id": conversion_id,
+                    "job_id": conversion_id,
+                    "status": api_status,
+                    "progress": int(progress_percentage),
+                    "message": message,
+                    "created_at": created_at.isoformat(),
+                    "updated_at": datetime.utcnow().isoformat(),
+                    "error_message": error_message
+                })
+            except Exception as job_exc:
+                logger.warning(f"Failed to get status for job {conversion_id}: {job_exc}")
+                continue
+
+        # Sort by created_at descending
+        job_list.sort(key=lambda x: x['created_at'], reverse=True)
+
+        return {
+            "total": len(job_list),
+            "jobs": job_list
+        }
+    except Exception as exc:
+        logger.error(f"Failed to list conversion jobs: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to list conversion jobs")
 
 
 @router.get("/convert/{conversion_id}", response_model=ConversionStatusResponse)
