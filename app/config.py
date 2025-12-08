@@ -5,7 +5,6 @@ This module handles environment variables, application settings,
 and configuration validation using Pydantic Settings.
 """
 
-
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
@@ -46,7 +45,15 @@ class Settings(BaseSettings):
     STATIC_DIR: str = "app/static"
 
     # Asset handling settings
-    ASSET_PATTERNS: list[str] = ["*.jpg", "*.jpeg", "*.png", "*.svg", "*.gif", "*.webp", "*.pdf"]
+    ASSET_PATTERNS: list[str] = [
+        "*.jpg",
+        "*.jpeg",
+        "*.png",
+        "*.svg",
+        "*.gif",
+        "*.webp",
+        "*.pdf",
+    ]
 
     # External tools settings
     TECTONIC_PATH: str = "/usr/local/bin/tectonic"
@@ -67,13 +74,18 @@ class Settings(BaseSettings):
     def validate_secret_key(cls, v: str, info) -> str:
         """Validate secret key is changed in production."""
         environment = info.data.get("ENVIRONMENT", "development")
-        if environment == "production" and v == "dev-secret-key-change-in-production-min-64-chars-required-now":
+        if (
+            environment == "production"
+            and v == "dev-secret-key-change-in-production-min-64-chars-required-now"
+        ):
             raise ValueError(
                 "SECRET_KEY must be changed in production! "
                 "Set SECRET_KEY environment variable to a secure random value."
             )
         if len(v) < 64:
-            raise ValueError("SECRET_KEY must be at least 64 characters long for production security")
+            raise ValueError(
+                "SECRET_KEY must be at least 64 characters long for production security"
+            )
         return v
 
     @field_validator("ENVIRONMENT")
@@ -106,6 +118,7 @@ class Settings(BaseSettings):
 
     class Config:
         """Pydantic configuration."""
+
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False

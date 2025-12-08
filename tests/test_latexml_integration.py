@@ -165,8 +165,7 @@ class TestLaTeXMLIntegration:
 
             # Convert with math support
             options = LaTeXMLConversionOptions(
-                include_mathml=True,
-                preload_modules=["amsmath", "amssymb"]
+                include_mathml=True, preload_modules=["amsmath", "amssymb"]
             )
             result = service.convert_tex_to_html(input_file, output_dir, options)
 
@@ -210,8 +209,7 @@ class TestLaTeXMLIntegration:
 
             # Convert with custom preamble
             options = LaTeXMLConversionOptions(
-                custom_preamble=custom_preamble,
-                preload_modules=["graphicx", "amsmath"]
+                custom_preamble=custom_preamble, preload_modules=["graphicx", "amsmath"]
             )
             result = service.convert_tex_to_html(input_file, output_dir, options)
 
@@ -252,9 +250,7 @@ class TestLaTeXMLIntegration:
             output_dir.mkdir()
 
             # Convert with custom postamble
-            options = LaTeXMLConversionOptions(
-                custom_postamble=custom_postamble
-            )
+            options = LaTeXMLConversionOptions(custom_postamble=custom_postamble)
             result = service.convert_tex_to_html(input_file, output_dir, options)
 
             assert result["success"] is True
@@ -289,10 +285,7 @@ class TestLaTeXMLIntegration:
             output_dir.mkdir()
 
             # Convert with strict mode
-            options = LaTeXMLConversionOptions(
-                strict_mode=True,
-                verbose=True
-            )
+            options = LaTeXMLConversionOptions(strict_mode=True, verbose=True)
             result = service.convert_tex_to_html(input_file, output_dir, options)
 
             assert result["success"] is True
@@ -327,7 +320,10 @@ class TestLaTeXMLIntegration:
                 service.convert_tex_to_html(input_file, output_dir)
 
             # Should contain information about the error
-            assert "undefined" in str(exc_info.value).lower() or "error" in str(exc_info.value).lower()
+            assert (
+                "undefined" in str(exc_info.value).lower()
+                or "error" in str(exc_info.value).lower()
+            )
 
     def test_conversion_timeout(self):
         """Test conversion timeout handling."""
@@ -370,7 +366,8 @@ class TestLaTeXMLIntegration:
         settings = LaTeXMLSettings(max_file_size=100)  # 100 bytes
         service = LaTeXMLService(settings=settings)
 
-        latex_content = r"""
+        latex_content = (
+            r"""
         \documentclass{article}
         \begin{document}
         \title{Large File Test}
@@ -378,7 +375,9 @@ class TestLaTeXMLIntegration:
         
         \section{Content}
         This is a very long document that exceeds the file size limit.
-        """ + "x" * 1000  # Add lots of content
+        """
+            + "x" * 1000
+        )  # Add lots of content
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

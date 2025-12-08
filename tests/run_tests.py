@@ -24,7 +24,7 @@ def run_tests():
         "tests/test_tectonic_integration.py",
         "tests/test_latexml_service.py",
         "tests/test_latexml_integration.py",
-        "tests/test_html_post_processor.py"
+        "tests/test_html_post_processor.py",
     ]
 
     for test_file in test_files:

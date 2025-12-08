@@ -44,7 +44,7 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
         self,
         max_concurrent_jobs: int = 5,
         max_job_duration: int = 600,
-        cleanup_interval: int = 3600
+        cleanup_interval: int = 3600,
     ):
         """
         Initialize the conversion orchestrator.
@@ -77,7 +77,7 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
             "completed_jobs": 0,
             "failed_jobs": 0,
             "cancelled_jobs": 0,
-            "total_processing_time": 0.0
+            "total_processing_time": 0.0,
         }
 
         # Start background tasks
@@ -90,7 +90,7 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
         input_file: Path,
         output_dir: Path,
         options: ConversionOptions | None = None,
-        job_id: str | None = None
+        job_id: str | None = None,
     ) -> str:
         """
         Start a new conversion job.
@@ -131,7 +131,7 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
                     input_file=input_file,
                     output_dir=output_dir,
                     options=options,
-                    job_id=requested_job_id
+                    job_id=requested_job_id,
                 )
                 job_created_id = job.job_id
 
@@ -154,7 +154,9 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
                     self._jobs.pop(job_created_id, None)
 
                 logger.exception(f"Failed to start conversion: {exc}")
-                raise OrchestrationError(f"Failed to start conversion: {exc}")
+                raise OrchestrationError(
+                    f"Failed to start conversion: {exc}"
+                ) from exc
 
     def get_job_status(self, job_id: str) -> ConversionStatus | None:
         """
@@ -199,7 +201,10 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
         """
         with self._job_lock:
             job = self._jobs.get(job_id)
-            if not job or job.status not in [ConversionStatus.COMPLETED, ConversionStatus.FAILED]:
+            if not job or job.status not in [
+                ConversionStatus.COMPLETED,
+                ConversionStatus.FAILED,
+            ]:
                 return None
 
             return self._pipeline._create_conversion_result(job)
@@ -235,7 +240,7 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
         self,
         status_filter: ConversionStatus | None = None,
         limit: int = 100,
-        offset: int = 0
+        offset: int = 0,
     ) -> list[ConversionJob]:
         """
         List conversion jobs with optional filtering and pagination.
@@ -281,7 +286,9 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
         """
         with self._job_lock:
             if status_filter:
-                return sum(1 for job in self._jobs.values() if job.status == status_filter)
+                return sum(
+                    1 for job in self._jobs.values() if job.status == status_filter
+                )
             return len(self._jobs)
 
     def get_statistics(self) -> dict[str, Any]:
@@ -301,7 +308,8 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
                 "total_jobs_stored": total_jobs,
                 "max_concurrent_jobs": self.max_concurrent_jobs,
                 "max_job_duration": self.max_job_duration,
-                "uptime_seconds": time.time() - getattr(self, '_start_time', time.time())
+                "uptime_seconds": time.time()
+                - getattr(self, "_start_time", time.time()),
             }
 
     def cleanup_completed_jobs(self, older_than_hours: int = 24) -> int:
@@ -321,9 +329,16 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
             jobs_to_remove = []
 
             for job_id, job in self._jobs.items():
-                if (job.status in [ConversionStatus.COMPLETED, ConversionStatus.FAILED, ConversionStatus.CANCELLED]
+                if (
+                    job.status
+                    in [
+                        ConversionStatus.COMPLETED,
+                        ConversionStatus.FAILED,
+                        ConversionStatus.CANCELLED,
+                    ]
                     and job.completed_at
-                    and job.completed_at < cutoff_time):
+                    and job.completed_at < cutoff_time
+                ):
                     jobs_to_remove.append(job_id)
 
             for job_id in jobs_to_remove:
@@ -360,6 +375,7 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
 
     def _start_conversion_task(self, job: ConversionJob) -> None:
         """Start a conversion task in a background thread."""
+
         def _run_conversion():
             try:
                 logger.info(f"Starting conversion task for job: {job.job_id}")
@@ -375,7 +391,9 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
                         self._stats["failed_jobs"] += 1
 
                     if job.total_duration_seconds:
-                        self._stats["total_processing_time"] += job.total_duration_seconds
+                        self._stats["total_processing_time"] += (
+                            job.total_duration_seconds
+                        )
 
                     # Always remove from active jobs when done
                     self._active_job_ids.discard(job.job_id)
@@ -396,9 +414,7 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
         try:
             # Start background thread
             thread = threading.Thread(
-                target=_run_conversion,
-                name=f"conversion-{job.job_id}",
-                daemon=True
+                target=_run_conversion, name=f"conversion-{job.job_id}", daemon=True
             )
             thread.start()
 
@@ -415,7 +431,9 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
 
         except Exception as exc:
             # Thread creation failed - clean up immediately
-            logger.exception(f"Failed to create background thread for job {job.job_id}: {exc}")
+            logger.exception(
+                f"Failed to create background thread for job {job.job_id}: {exc}"
+            )
             with self._job_lock:
                 job.status = ConversionStatus.FAILED
                 job.completed_at = datetime.utcnow()
@@ -429,17 +447,13 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
 
         # Start cleanup thread
         self._cleanup_thread = threading.Thread(
-            target=self._cleanup_loop,
-            name="orchestrator-cleanup",
-            daemon=True
+            target=self._cleanup_loop, name="orchestrator-cleanup", daemon=True
         )
         self._cleanup_thread.start()
 
         # Start monitor thread
         self._monitor_thread = threading.Thread(
-            target=self._monitor_loop,
-            name="orchestrator-monitor",
-            daemon=True
+            target=self._monitor_loop, name="orchestrator-monitor", daemon=True
         )
         self._monitor_thread.start()
 
@@ -450,7 +464,9 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
         while not self._shutdown_event.is_set():
             try:
                 # Clean up old jobs (using same retention period as conversion storage)
-                self.cleanup_completed_jobs(older_than_hours=settings.CONVERSION_RETENTION_HOURS)
+                self.cleanup_completed_jobs(
+                    older_than_hours=settings.CONVERSION_RETENTION_HOURS
+                )
 
                 # Wait for next cleanup cycle
                 self._shutdown_event.wait(self.cleanup_interval)
@@ -480,9 +496,12 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
 
         with self._job_lock:
             for job_id, job in self._jobs.items():
-                if (job.status == ConversionStatus.RUNNING
+                if (
+                    job.status == ConversionStatus.RUNNING
                     and job.started_at
-                    and (current_time - job.started_at).total_seconds() > self.max_job_duration):
+                    and (current_time - job.started_at).total_seconds()
+                    > self.max_job_duration
+                ):
                     stuck_jobs.append(job_id)
 
         for job_id in stuck_jobs:
@@ -522,7 +541,7 @@ def get_orchestrator() -> ConversionOrchestrator:
         _orchestrator = ConversionOrchestrator(
             max_concurrent_jobs=settings.MAX_CONCURRENT_CONVERSIONS,
             max_job_duration=settings.CONVERSION_TIMEOUT,
-            cleanup_interval=3600  # 1 hour
+            cleanup_interval=3600,  # 1 hour
         )
 
     return _orchestrator

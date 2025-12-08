@@ -37,8 +37,8 @@ class TestTectonicService:
         service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
 
         # Create a temporary .tex file
-        with tempfile.NamedTemporaryFile(suffix='.tex', delete=False) as f:
-            f.write(b'\\documentclass{article}\\begin{document}Hello\\end{document}')
+        with tempfile.NamedTemporaryFile(suffix=".tex", delete=False) as f:
+            f.write(b"\\documentclass{article}\\begin{document}Hello\\end{document}")
             temp_file = Path(f.name)
 
         try:
@@ -52,8 +52,8 @@ class TestTectonicService:
         service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
 
         # Create a temporary file with wrong extension
-        with tempfile.NamedTemporaryFile(suffix='.txt', delete=False) as f:
-            f.write(b'Some content')
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as f:
+            f.write(b"Some content")
             temp_file = Path(f.name)
 
         try:
@@ -68,8 +68,10 @@ class TestTectonicService:
         service = TectonicService(tectonic_path="/opt/homebrew/bin/tectonic")
 
         # Create a temporary file with dangerous characters
-        with tempfile.NamedTemporaryFile(suffix='.tex', prefix='dangerous..', delete=False) as f:
-            f.write(b'\\documentclass{article}\\begin{document}Hello\\end{document}')
+        with tempfile.NamedTemporaryFile(
+            suffix=".tex", prefix="dangerous..", delete=False
+        ) as f:
+            f.write(b"\\documentclass{article}\\begin{document}Hello\\end{document}")
             temp_file = Path(f.name)
 
         try:
@@ -139,11 +141,7 @@ class TestTectonicService:
 
         input_file = Path("test.tex")
         output_dir = Path("output")
-        options = {
-            "engine": "xelatex",
-            "format": "latex",
-            "extra_args": ["--verbose"]
-        }
+        options = {"engine": "xelatex", "format": "latex", "extra_args": ["--verbose"]}
 
         cmd = service._build_command(input_file, output_dir, options)
 
@@ -159,13 +157,7 @@ class TestTectonicService:
             temp_path = Path(temp_dir)
 
             # Create some auxiliary files
-            aux_files = [
-                "test.aux",
-                "test.log",
-                "test.toc",
-                "test.bbl",
-                "test.blg"
-            ]
+            aux_files = ["test.aux", "test.log", "test.toc", "test.bbl", "test.blg"]
 
             for aux_file in aux_files:
                 (temp_path / aux_file).write_text("dummy content")

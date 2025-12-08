@@ -45,10 +45,13 @@ class ConversionResponse(BaseModel):
     completed_at: datetime | None = Field(default=None)
 
     # Error information
-    error_message: str | None = Field(default=None, description="Error message if conversion failed")
+    error_message: str | None = Field(
+        default=None, description="Error message if conversion failed"
+    )
 
     class Config:
         """Pydantic configuration."""
+
         use_enum_values = True
 
 
@@ -73,16 +76,17 @@ class ConversionStatusResponse(BaseModel):
 
     # Error information
     error_message: str | None = Field(default=None)
-    
-    @model_validator(mode='after')
-    def set_job_id(self) -> 'ConversionStatusResponse':
+
+    @model_validator(mode="after")
+    def set_job_id(self) -> "ConversionStatusResponse":
         """Set job_id to match conversion_id if not explicitly set."""
-        if not hasattr(self, 'job_id') or self.job_id != self.conversion_id:
+        if not hasattr(self, "job_id") or self.job_id != self.conversion_id:
             self.job_id = self.conversion_id
         return self
 
     class Config:
         """Pydantic configuration."""
+
         use_enum_values = True
 
 
@@ -158,6 +162,5 @@ class ConversionReport(BaseModel):
 
     class Config:
         """Pydantic configuration."""
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+
+        json_encoders = {datetime: lambda v: v.isoformat()}

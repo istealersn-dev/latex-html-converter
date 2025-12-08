@@ -67,9 +67,7 @@ class LoggingMiddleware:
         process_time = time.time() - start_time
 
         # Log response
-        logger.info(
-            f"[{request_id}] Request completed in {process_time:.3f}s"
-        )
+        logger.info(f"[{request_id}] Request completed in {process_time:.3f}s")
 
 
 class ErrorHandlingMiddleware:
@@ -110,8 +108,8 @@ class ErrorHandlingMiddleware:
                 content={
                     "error": "Internal Server Error",
                     "message": "An unexpected error occurred",
-                    "request_id": scope.get("request_id", "unknown")
-                }
+                    "request_id": scope.get("request_id", "unknown"),
+                },
             )
 
             # Send error response
@@ -152,12 +150,17 @@ class SecurityMiddleware:
         async def send_wrapper(message: dict[str, Any]) -> None:
             if message["type"] == "http.response.start":
                 headers = list(message.get("headers", []))
-                headers.extend([
-                    (b"x-content-type-options", b"nosniff"),
-                    (b"x-frame-options", b"DENY"),
-                    (b"x-xss-protection", b"1; mode=block"),
-                    (b"strict-transport-security", b"max-age=31536000; includeSubDomains"),
-                ])
+                headers.extend(
+                    [
+                        (b"x-content-type-options", b"nosniff"),
+                        (b"x-frame-options", b"DENY"),
+                        (b"x-xss-protection", b"1; mode=block"),
+                        (
+                            b"strict-transport-security",
+                            b"max-age=31536000; includeSubDomains",
+                        ),
+                    ]
+                )
                 message["headers"] = headers
             await send(message)
 

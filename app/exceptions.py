@@ -11,7 +11,9 @@ from typing import Any
 class BaseServiceError(Exception):
     """Base exception for all service errors."""
 
-    def __init__(self, message: str, error_type: str, details: dict[str, Any] | None = None):
+    def __init__(
+        self, message: str, error_type: str, details: dict[str, Any] | None = None
+    ):
         super().__init__(message)
         self.error_type = error_type
         self.details = details or {}
@@ -24,7 +26,7 @@ class ServiceTimeoutError(BaseServiceError):
         super().__init__(
             f"Service operation timed out after {timeout_seconds} seconds",
             "TIMEOUT_ERROR",
-            {"timeout_seconds": timeout_seconds}
+            {"timeout_seconds": timeout_seconds},
         )
 
 
@@ -45,7 +47,12 @@ class ServiceSecurityError(BaseServiceError):
 class ServiceConversionError(BaseServiceError):
     """Raised when conversion operations fail."""
 
-    def __init__(self, message: str, error_type: str = "CONVERSION_ERROR", details: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        message: str,
+        error_type: str = "CONVERSION_ERROR",
+        details: dict[str, Any] | None = None,
+    ):
         super().__init__(message, error_type, details)
 
 

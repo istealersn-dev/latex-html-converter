@@ -177,7 +177,9 @@ This document requires a package that doesn't exist.
 
             # Test 2: Dangerous filename
             dangerous_file = temp_path / "test..tex"
-            dangerous_file.write_text(r"\documentclass{article}\begin{document}Hello\end{document}")
+            dangerous_file.write_text(
+                r"\documentclass{article}\begin{document}Hello\end{document}"
+            )
 
             with pytest.raises(Exception):  # Should be TectonicSecurityError
                 service.compile_latex(dangerous_file, temp_path / "output")

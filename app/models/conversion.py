@@ -8,7 +8,7 @@ including conversion jobs, pipeline stages, and processing results.
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, List
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -47,10 +47,16 @@ class PipelineStage(BaseModel):
     status: ConversionStatus = Field(..., description="Stage status")
     started_at: datetime | None = Field(None, description="Stage start time")
     completed_at: datetime | None = Field(None, description="Stage completion time")
-    duration_seconds: float | None = Field(None, description="Stage duration in seconds")
-    progress_percentage: float = Field(0.0, ge=0.0, le=100.0, description="Stage progress percentage")
+    duration_seconds: float | None = Field(
+        None, description="Stage duration in seconds"
+    )
+    progress_percentage: float = Field(
+        0.0, ge=0.0, le=100.0, description="Stage progress percentage"
+    )
     error_message: str | None = Field(None, description="Error message if stage failed")
-    metadata: dict[str, Any] = Field(default_factory=dict, description="Stage-specific metadata")
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Stage-specific metadata"
+    )
 
     @field_validator("duration_seconds")
     @classmethod
@@ -67,20 +73,36 @@ class ConversionJob(BaseModel):
     job_id: str = Field(..., description="Unique job identifier")
     input_file: Path = Field(..., description="Input LaTeX file path")
     output_dir: Path = Field(..., description="Output directory path")
-    status: ConversionStatus = Field(default=ConversionStatus.PENDING, description="Job status")
-    current_stage: ConversionStage = Field(default=ConversionStage.INITIALIZED, description="Current pipeline stage")
-    created_at: datetime = Field(default_factory=datetime.utcnow, description="Job creation time")
+    status: ConversionStatus = Field(
+        default=ConversionStatus.PENDING, description="Job status"
+    )
+    current_stage: ConversionStage = Field(
+        default=ConversionStage.INITIALIZED, description="Current pipeline stage"
+    )
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Job creation time"
+    )
     started_at: datetime | None = Field(None, description="Job start time")
     completed_at: datetime | None = Field(None, description="Job completion time")
-    total_duration_seconds: float | None = Field(None, description="Total job duration in seconds")
+    total_duration_seconds: float | None = Field(
+        None, description="Total job duration in seconds"
+    )
 
     # Pipeline stages
-    stages: list[PipelineStage] = Field(default_factory=list, description="Pipeline stages")
+    stages: list[PipelineStage] = Field(
+        default_factory=list, description="Pipeline stages"
+    )
 
     # Results
-    output_files: list[Path] = Field(default_factory=list, description="Generated output files")
-    assets: list[Path] = Field(default_factory=list, description="Generated asset files")
-    quality_score: float | None = Field(None, ge=0.0, le=100.0, description="Output quality score")
+    output_files: list[Path] = Field(
+        default_factory=list, description="Generated output files"
+    )
+    assets: list[Path] = Field(
+        default_factory=list, description="Generated asset files"
+    )
+    quality_score: float | None = Field(
+        None, ge=0.0, le=100.0, description="Output quality score"
+    )
 
     # Error handling
     error_message: str | None = Field(None, description="Error message if job failed")
@@ -88,7 +110,9 @@ class ConversionJob(BaseModel):
     max_retries: int = Field(default=3, ge=0, description="Maximum retry attempts")
 
     # Configuration
-    options: dict[str, Any] = Field(default_factory=dict, description="Conversion options")
+    options: dict[str, Any] = Field(
+        default_factory=dict, description="Conversion options"
+    )
     metadata: dict[str, Any] = Field(default_factory=dict, description="Job metadata")
 
     @field_validator("total_duration_seconds")
@@ -116,24 +140,38 @@ class ConversionResult(BaseModel):
     success: bool = Field(..., description="Whether conversion was successful")
 
     # Output information
-    output_files: list[Path] = Field(default_factory=list, description="Generated output files")
-    assets: list[Path] = Field(default_factory=list, description="Generated asset files")
+    output_files: list[Path] = Field(
+        default_factory=list, description="Generated output files"
+    )
+    assets: list[Path] = Field(
+        default_factory=list, description="Generated asset files"
+    )
     main_html_file: Path | None = Field(None, description="Main HTML output file")
 
     # Quality metrics
-    quality_score: float | None = Field(None, ge=0.0, le=100.0, description="Output quality score")
-    quality_metrics: dict[str, Any] = Field(default_factory=dict, description="Detailed quality metrics")
+    quality_score: float | None = Field(
+        None, ge=0.0, le=100.0, description="Output quality score"
+    )
+    quality_metrics: dict[str, Any] = Field(
+        default_factory=dict, description="Detailed quality metrics"
+    )
 
     # Processing information
-    total_duration_seconds: float | None = Field(None, description="Total processing time")
-    stages_completed: list[str] = Field(default_factory=list, description="Completed stages")
+    total_duration_seconds: float | None = Field(
+        None, description="Total processing time"
+    )
+    stages_completed: list[str] = Field(
+        default_factory=list, description="Completed stages"
+    )
     warnings: list[str] = Field(default_factory=list, description="Processing warnings")
     errors: list[str] = Field(default_factory=list, description="Processing errors")
 
     # Metadata
     created_at: datetime = Field(..., description="Job creation time")
     completed_at: datetime = Field(..., description="Job completion time")
-    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Additional metadata"
+    )
 
 
 class ConversionProgress(BaseModel):
@@ -142,45 +180,67 @@ class ConversionProgress(BaseModel):
     job_id: str = Field(..., description="Job identifier")
     status: ConversionStatus = Field(..., description="Current job status")
     current_stage: ConversionStage = Field(..., description="Current pipeline stage")
-    progress_percentage: float = Field(0.0, ge=0.0, le=100.0, description="Overall progress percentage")
+    progress_percentage: float = Field(
+        0.0, ge=0.0, le=100.0, description="Overall progress percentage"
+    )
 
     # Stage information
-    current_stage_progress: float = Field(0.0, ge=0.0, le=100.0, description="Current stage progress")
+    current_stage_progress: float = Field(
+        0.0, ge=0.0, le=100.0, description="Current stage progress"
+    )
     stages_completed: int = Field(0, ge=0, description="Number of completed stages")
     total_stages: int = Field(0, ge=0, description="Total number of stages")
 
     # Timing information
     elapsed_seconds: float | None = Field(None, description="Elapsed time in seconds")
-    estimated_remaining_seconds: float | None = Field(None, description="Estimated remaining time")
+    estimated_remaining_seconds: float | None = Field(
+        None, description="Estimated remaining time"
+    )
 
     # Status information
     message: str | None = Field(None, description="Current status message")
     warnings: list[str] = Field(default_factory=list, description="Current warnings")
 
     # Metadata
-    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update time")
-    metadata: dict[str, Any] = Field(default_factory=dict, description="Progress metadata")
+    updated_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Last update time"
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Progress metadata"
+    )
 
 
 class ConversionOptions(BaseModel):
     """Model for conversion pipeline options."""
 
     # Tectonic options
-    tectonic_options: dict[str, Any] = Field(default_factory=dict, description="Tectonic compilation options")
+    tectonic_options: dict[str, Any] = Field(
+        default_factory=dict, description="Tectonic compilation options"
+    )
 
     # LaTeXML options
-    latexml_options: dict[str, Any] = Field(default_factory=dict, description="LaTeXML conversion options")
+    latexml_options: dict[str, Any] = Field(
+        default_factory=dict, description="LaTeXML conversion options"
+    )
 
     # Post-processing options
-    post_processing_options: dict[str, Any] = Field(default_factory=dict, description="HTML post-processing options")
+    post_processing_options: dict[str, Any] = Field(
+        default_factory=dict, description="HTML post-processing options"
+    )
 
     # Quality options
     quality_checks: bool = Field(default=True, description="Enable quality checks")
-    quality_threshold: float = Field(default=80.0, ge=0.0, le=100.0, description="Minimum quality threshold")
+    quality_threshold: float = Field(
+        default=80.0, ge=0.0, le=100.0, description="Minimum quality threshold"
+    )
 
     # Resource options
-    max_processing_time: int = Field(default=600, ge=60, description="Maximum processing time in seconds")
-    max_memory_mb: int = Field(default=1024, ge=256, description="Maximum memory usage in MB")
+    max_processing_time: int = Field(
+        default=600, ge=60, description="Maximum processing time in seconds"
+    )
+    max_memory_mb: int = Field(
+        default=1024, ge=256, description="Maximum memory usage in MB"
+    )
 
     # Output options
     output_format: str = Field(default="html", description="Output format")
@@ -190,7 +250,9 @@ class ConversionOptions(BaseModel):
     # Validation options
     validate_html: bool = Field(default=True, description="Validate HTML output")
     validate_mathml: bool = Field(default=True, description="Validate MathML output")
-    validate_accessibility: bool = Field(default=True, description="Validate accessibility")
+    validate_accessibility: bool = Field(
+        default=True, description="Validate accessibility"
+    )
 
     @field_validator("quality_threshold")
     @classmethod
@@ -223,42 +285,72 @@ class ConversionOptions(BaseModel):
 
 class ConversionDiagnostics(BaseModel):
     """Detailed diagnostics for failed conversions."""
-    
+
     # Missing dependencies
-    missing_packages: List[str] = Field(default_factory=list, description="Missing LaTeX packages")
-    missing_files: List[str] = Field(default_factory=list, description="Missing referenced files")
-    custom_classes_found: List[str] = Field(default_factory=list, description="Custom document classes found")
-    
+    missing_packages: list[str] = Field(
+        default_factory=list, description="Missing LaTeX packages"
+    )
+    missing_files: list[str] = Field(
+        default_factory=list, description="Missing referenced files"
+    )
+    custom_classes_found: list[str] = Field(
+        default_factory=list, description="Custom document classes found"
+    )
+
     # Compilation errors
-    compilation_errors: List[str] = Field(default_factory=list, description="LaTeX compilation errors")
-    latexml_errors: List[str] = Field(default_factory=list, description="LaTeXML conversion errors")
-    
+    compilation_errors: list[str] = Field(
+        default_factory=list, description="LaTeX compilation errors"
+    )
+    latexml_errors: list[str] = Field(
+        default_factory=list, description="LaTeXML conversion errors"
+    )
+
     # Suggestions for resolution
-    suggestions: List[str] = Field(default_factory=list, description="Suggestions for fixing issues")
-    
+    suggestions: list[str] = Field(
+        default_factory=list, description="Suggestions for fixing issues"
+    )
+
     # Package installation status
-    packages_installed: List[str] = Field(default_factory=list, description="Successfully installed packages")
-    packages_failed: List[str] = Field(default_factory=list, description="Failed to install packages")
-    
+    packages_installed: list[str] = Field(
+        default_factory=list, description="Successfully installed packages"
+    )
+    packages_failed: list[str] = Field(
+        default_factory=list, description="Failed to install packages"
+    )
+
     # File discovery status
-    files_discovered: int = Field(default=0, description="Number of files discovered in project")
-    files_extracted: int = Field(default=0, description="Number of files successfully extracted")
-    
+    files_discovered: int = Field(
+        default=0, description="Number of files discovered in project"
+    )
+    files_extracted: int = Field(
+        default=0, description="Number of files successfully extracted"
+    )
+
     # Project structure analysis
     main_tex_file: str | None = Field(None, description="Main .tex file identified")
-    project_type: str | None = Field(None, description="Type of LaTeX project (article, book, etc.)")
-    complexity_score: float | None = Field(None, ge=0.0, le=100.0, description="Project complexity score")
-    
+    project_type: str | None = Field(
+        None, description="Type of LaTeX project (article, book, etc.)"
+    )
+    complexity_score: float | None = Field(
+        None, ge=0.0, le=100.0, description="Project complexity score"
+    )
+
     # Fallback information
-    tectonic_failed: bool = Field(default=False, description="Whether Tectonic compilation failed")
-    fallback_used: bool = Field(default=False, description="Whether fallback to LaTeXML-only was used")
+    tectonic_failed: bool = Field(
+        default=False, description="Whether Tectonic compilation failed"
+    )
+    fallback_used: bool = Field(
+        default=False, description="Whether fallback to LaTeXML-only was used"
+    )
     fallback_reason: str | None = Field(None, description="Reason for fallback")
-    
+
     # Quality assessment
-    conversion_quality: str | None = Field(None, description="Overall conversion quality assessment")
+    conversion_quality: str | None = Field(
+        None, description="Overall conversion quality assessment"
+    )
     math_rendering: str | None = Field(None, description="Math rendering quality")
     graphics_handling: str | None = Field(None, description="Graphics handling quality")
-    
+
     @field_validator("complexity_score")
     @classmethod
     def validate_complexity_score(cls, v: float | None) -> float | None:

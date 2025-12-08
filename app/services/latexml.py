@@ -20,7 +20,12 @@ from app.utils.shell import run_command_safely
 class LaTeXMLError(Exception):
     """Base exception for LaTeXML-related errors."""
 
-    def __init__(self, message: str, error_type: str = "LATEXML_ERROR", details: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        message: str,
+        error_type: str = "LATEXML_ERROR",
+        details: dict[str, Any] | None = None,
+    ):
         super().__init__(message)
         self.error_type = error_type
         self.details = details or {}
@@ -33,7 +38,7 @@ class LaTeXMLTimeoutError(LaTeXMLError):
         super().__init__(
             f"LaTeXML conversion timed out after {timeout_seconds} seconds",
             "TIMEOUT_ERROR",
-            {"timeout_seconds": timeout_seconds}
+            {"timeout_seconds": timeout_seconds},
         )
 
 
@@ -47,7 +52,12 @@ class LaTeXMLFileError(LaTeXMLError):
 class LaTeXMLConversionError(LaTeXMLError):
     """Raised when LaTeXML conversion fails."""
 
-    def __init__(self, message: str, error_type: str = "CONVERSION_ERROR", details: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        message: str,
+        error_type: str = "CONVERSION_ERROR",
+        details: dict[str, Any] | None = None,
+    ):
         super().__init__(message, error_type, details)
 
 
@@ -64,7 +74,7 @@ class LaTeXMLService:
     def __init__(self, settings: LaTeXMLSettings | None = None):
         """
         Initialize LaTeXML service.
-        
+
         Args:
             settings: LaTeXML configuration settings
         """
@@ -74,38 +84,40 @@ class LaTeXMLService:
     def _verify_latexml_installation(self) -> None:
         """Verify LaTeXML is installed and accessible."""
         try:
-            result = run_command_safely([self.settings.latexml_path, "--help"], timeout=10)
+            result = run_command_safely(
+                [self.settings.latexml_path, "--help"], timeout=10
+            )
             if result.returncode != 0:
                 raise LaTeXMLFileError(
                     f"LaTeXML not found or not working: {self.settings.latexml_path}",
-                    self.settings.latexml_path
+                    self.settings.latexml_path,
                 )
             logger.info("LaTeXML verified: %s", self.settings.latexml_path)
         except Exception as exc:
             raise LaTeXMLFileError(
                 f"Failed to verify LaTeXML installation: {exc}",
-                self.settings.latexml_path
-            )
+                self.settings.latexml_path,
+            ) from exc
 
     def convert_tex_to_html(
         self,
         input_file: Path,
         output_dir: Path,
         options: LaTeXMLConversionOptions | None = None,
-        project_dir: Path | None = None
+        project_dir: Path | None = None,
     ) -> dict[str, Any]:
         """
         Convert TeX file to HTML using LaTeXML.
-        
+
         Args:
             input_file: Path to input TeX file
             output_dir: Directory for output files
             options: Conversion options
             project_dir: Project directory with custom classes and styles
-            
+
         Returns:
             Dict containing conversion results and metadata
-            
+
         Raises:
             LaTeXMLFileError: If input file issues
             LaTeXMLSecurityError: If security validation fails
@@ -125,7 +137,9 @@ class LaTeXMLService:
         try:
             ensure_directory(output_dir)
         except Exception as exc:
-            raise LaTeXMLFileError(f"Failed to create output directory: {exc}", str(output_dir))
+            raise LaTeXMLFileError(
+                f"Failed to create output directory: {exc}", str(output_dir)
+            ) from exc
 
         # Generate output file path
         output_file = output_dir / f"{input_file.stem}.{settings.output_format}"
@@ -150,24 +164,29 @@ class LaTeXMLService:
 
             # Build LaTeXML command
             cmd = settings.get_latexml_command(input_file, output_file)
-            
+
             # Add project directory paths if provided
             if project_dir and project_dir.exists():
                 # Add main project directory
                 cmd.extend(["--path", str(project_dir)])
-                
+
                 # Add common subdirectories if they exist
                 for subdir in ["doc", "graphic", "styles", "figures", "images"]:
                     subdir_path = project_dir / subdir
                     if subdir_path.exists():
                         cmd.extend(["--path", str(subdir_path)])
-                
+
                 logger.info("Added project directory paths: %s", project_dir)
-            
+
             env_vars = settings.get_environment_vars()
 
-            logger.info("Converting TeX to %s: %s -> %s", settings.output_format.upper(), input_file, output_file)
-            logger.debug("LaTeXML command: %s", ' '.join(cmd))
+            logger.info(
+                "Converting TeX to %s: %s -> %s",
+                settings.output_format.upper(),
+                input_file,
+                output_file,
+            )
+            logger.debug("LaTeXML command: %s", " ".join(cmd))
 
             try:
                 # Run LaTeXML conversion
@@ -175,16 +194,18 @@ class LaTeXMLService:
                     cmd,
                     cwd=input_file.parent,
                     timeout=settings.conversion_timeout,
-                    env=env_vars
+                    env=env_vars,
                 )
 
                 if result.returncode != 0:
-                    error_info = self._parse_conversion_error(result.stderr, result.stdout)
-                    logger.error("LaTeXML conversion failed: %s", error_info['message'])
+                    error_info = self._parse_conversion_error(
+                        result.stderr, result.stdout
+                    )
+                    logger.error("LaTeXML conversion failed: %s", error_info["message"])
                     raise LaTeXMLConversionError(
-                        error_info['message'],
-                        error_info['error_type'],
-                        error_info['details']
+                        error_info["message"],
+                        error_info["error_type"],
+                        error_info["details"],
                     )
 
                 # Parse conversion results
@@ -194,106 +215,119 @@ class LaTeXMLService:
 
                 # Validate output file was created
                 if not output_file.exists():
-                    raise LaTeXMLFileError("Conversion completed but no output file was created", str(output_file))
+                    raise LaTeXMLFileError(
+                        "Conversion completed but no output file was created",
+                        str(output_file),
+                    )
 
                 logger.info("Conversion successful: %s", output_file)
                 return conversion_result
 
             except subprocess.TimeoutExpired:
-                raise LaTeXMLTimeoutError(settings.conversion_timeout)
+                raise LaTeXMLTimeoutError(
+                    settings.conversion_timeout
+                ) from None
             except LaTeXMLConversionError:
                 # Re-raise our custom errors
                 raise
             except Exception as exc:
                 logger.error("Unexpected conversion error: %s", exc)
-                raise LaTeXMLConversionError(f"Unexpected conversion error: {exc}", "UNKNOWN_ERROR")
+                raise LaTeXMLConversionError(
+                    f"Unexpected conversion error: {exc}", "UNKNOWN_ERROR"
+                ) from exc
 
     def _validate_input_file(self, input_file: Path) -> None:
         """
         Validate input file for security and format.
-        
+
         Args:
             input_file: Path to input file
-            
+
         Raises:
             LaTeXMLFileError: If file validation fails
             LaTeXMLSecurityError: If security validation fails
         """
         if not input_file.exists():
-            raise LaTeXMLFileError(f"Input file not found: {input_file}", str(input_file))
+            raise LaTeXMLFileError(
+                f"Input file not found: {input_file}", str(input_file)
+            )
 
         if not input_file.is_file():
-            raise LaTeXMLFileError(f"Input path is not a file: {input_file}", str(input_file))
+            raise LaTeXMLFileError(
+                f"Input path is not a file: {input_file}", str(input_file)
+            )
 
         # Check file extension
         if input_file.suffix.lower() not in self.settings.allowed_extensions:
             raise LaTeXMLSecurityError(
                 f"File extension not allowed: {input_file.suffix}",
-                f"extension_{input_file.suffix}"
+                f"extension_{input_file.suffix}",
             )
 
         # Check file size
         try:
             file_info = get_file_info(input_file)
-            if file_info['size'] > self.settings.max_file_size:
+            if file_info["size"] > self.settings.max_file_size:
                 raise LaTeXMLSecurityError(
                     f"File too large: {file_info['size']} bytes (max: {self.settings.max_file_size})",
-                    "file_size_exceeded"
+                    "file_size_exceeded",
                 )
         except Exception as exc:
-            raise LaTeXMLFileError(f"Failed to get file info: {exc}", str(input_file))
+            raise LaTeXMLFileError(
+                f"Failed to get file info: {exc}", str(input_file)
+            ) from exc
 
         # Check for dangerous patterns in filename
-        dangerous_patterns = ['..', '/', '\\', '~', '$', '`']
+        dangerous_patterns = ["..", "/", "\\", "~", "$", "`"]
         filename = input_file.name.lower()
         for pattern in dangerous_patterns:
             if pattern in filename:
                 raise LaTeXMLSecurityError(
                     f"Dangerous pattern in filename: {pattern}",
-                    f"dangerous_pattern_{pattern}"
+                    f"dangerous_pattern_{pattern}",
                 )
 
     def _parse_conversion_error(self, stderr: str, stdout: str) -> dict[str, Any]:
         """
         Parse LaTeXML error output to categorize errors.
-        
+
         Args:
             stderr: Standard error output
             stdout: Standard output
-            
+
         Returns:
             Dict with error information
         """
-        error_lines = stderr.strip().split('\n') if stderr else []
-        output_lines = stdout.strip().split('\n') if stdout else []
+        error_lines = stderr.strip().split("\n") if stderr else []
+        output_lines = stdout.strip().split("\n") if stdout else []
 
         # Common LaTeXML error patterns
         if any("Fatal error" in line for line in error_lines):
             return {
                 "message": "LaTeXML fatal error occurred",
                 "error_type": "FATAL_ERROR",
-                "details": {"stderr": stderr, "stdout": stdout}
+                "details": {"stderr": stderr, "stdout": stdout},
             }
 
         if any("Undefined control sequence" in line for line in error_lines):
             return {
                 "message": "Undefined LaTeX control sequence",
                 "error_type": "UNDEFINED_CONTROL",
-                "details": {"stderr": stderr, "stdout": stdout}
+                "details": {"stderr": stderr, "stdout": stdout},
             }
 
         if any("File not found" in line for line in error_lines):
             return {
                 "message": "Required file not found",
                 "error_type": "FILE_NOT_FOUND",
-                "details": {"stderr": stderr, "stdout": stdout}
+                "details": {"stderr": stderr, "stdout": stdout},
             }
 
         if any("Emergency stop" in line for line in error_lines):
             return {
                 "message": "LaTeX emergency stop",
                 "error_type": "EMERGENCY_STOP",
-                "details": {"stderr": stderr, "stdout": stdout}
+                "details": {"stderr": stderr, "stdout": stdout},
             }
 
         # Generic error
@@ -301,7 +335,7 @@ class LaTeXMLService:
         return {
             "message": error_message,
             "error_type": "CONVERSION_ERROR",
-            "details": {"stderr": stderr, "stdout": stdout}
+            "details": {"stderr": stderr, "stdout": stdout},
         }
 
     def _parse_conversion_result(
@@ -310,17 +344,17 @@ class LaTeXMLService:
         output_file: Path,
         stdout: str,
         stderr: str,
-        settings: LaTeXMLSettings
+        settings: LaTeXMLSettings,
     ) -> dict[str, Any]:
         """
         Parse LaTeXML conversion results.
-        
+
         Args:
             input_file: Input file path
             output_file: Output file path
             stdout: Standard output
             stderr: Standard error
-            
+
         Returns:
             Dict with conversion results
         """
@@ -335,7 +369,7 @@ class LaTeXMLService:
             "success": True,
             "input_file": str(input_file),
             "output_file": str(output_file),
-            "output_size": output_info.get('size', 0),
+            "output_size": output_info.get("size", 0),
             "warnings": warnings,
             "info_messages": info_messages,
             "conversion_time": None,  # Could be added with timing
@@ -351,9 +385,9 @@ class LaTeXMLService:
             return []
 
         warnings = []
-        for line in stderr.split('\n'):
+        for line in stderr.split("\n"):
             line = line.strip()
-            if 'warning' in line.lower() and line:
+            if "warning" in line.lower() and line:
                 warnings.append(line)
 
         return warnings
@@ -364,9 +398,9 @@ class LaTeXMLService:
             return []
 
         info_messages = []
-        for line in stdout.split('\n'):
+        for line in stdout.split("\n"):
             line = line.strip()
-            if line and not line.startswith('['):  # Skip LaTeXML progress indicators
+            if line and not line.startswith("["):  # Skip LaTeXML progress indicators
                 info_messages.append(line)
 
         return info_messages
@@ -378,12 +412,17 @@ class LaTeXMLService:
     def get_version_info(self) -> dict[str, str]:
         """Get LaTeXML version information."""
         try:
-            result = run_command_safely([self.settings.latexml_path, "--help"], timeout=10)
+            result = run_command_safely(
+                [self.settings.latexml_path, "--help"], timeout=10
+            )
             # Extract version from help output
-            for line in result.stdout.split('\n'):
-                if 'LaTeXML version' in line:
-                    version = line.split('LaTeXML version')[1].strip()
-                    return {"version": version, "executable": self.settings.latexml_path}
+            for line in result.stdout.split("\n"):
+                if "LaTeXML version" in line:
+                    version = line.split("LaTeXML version")[1].strip()
+                    return {
+                        "version": version,
+                        "executable": self.settings.latexml_path,
+                    }
 
             return {"version": "unknown", "executable": self.settings.latexml_path}
         except Exception as exc:

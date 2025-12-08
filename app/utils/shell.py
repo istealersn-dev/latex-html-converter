@@ -14,6 +14,7 @@ from loguru import logger
 
 class CommandResult(NamedTuple):
     """Result of a command execution."""
+
     returncode: int
     stdout: str
     stderr: str
@@ -23,7 +24,7 @@ def run_command_safely(
     cmd: list[str],
     cwd: Path | None = None,
     timeout: int = 300,
-    env: dict[str, str] | None = None
+    env: dict[str, str] | None = None,
 ) -> CommandResult:
     """
     Run a command safely with proper error handling and security.
@@ -50,10 +51,12 @@ def run_command_safely(
         env = {}
 
     # Add security environment variables
-    env.update({
-        "SHELL": "/bin/bash",  # Use bash for consistency
-        "PATH": "/usr/bin:/bin:/usr/local/bin",  # Restricted PATH
-    })
+    env.update(
+        {
+            "SHELL": "/bin/bash",  # Use bash for consistency
+            "PATH": "/usr/bin:/bin:/usr/local/bin",  # Restricted PATH
+        }
+    )
 
     logger.debug(f"Running command: {' '.join(cmd)}")
     if cwd:
@@ -67,7 +70,7 @@ def run_command_safely(
             text=True,
             timeout=timeout,
             env=env,
-            check=False  # Don't raise exception on non-zero return code
+            check=False,  # Don't raise exception on non-zero return code
         )
 
         logger.debug(f"Command completed with return code: {result.returncode}")
@@ -77,9 +80,7 @@ def run_command_safely(
             logger.debug(f"STDERR: {result.stderr[:200]}...")
 
         return CommandResult(
-            returncode=result.returncode,
-            stdout=result.stdout,
-            stderr=result.stderr
+            returncode=result.returncode, stdout=result.stdout, stderr=result.stderr
         )
 
     except subprocess.TimeoutExpired:
@@ -102,33 +103,56 @@ def _validate_command_safety(cmd: list[str]) -> None:
     """
     # Dangerous patterns to avoid (but allow LaTeX flags)
     dangerous_patterns = [
-        '&&', '||', ';', '|', '>', '<', '>>', '<<', '&',
-        '$(', '`', '$(', '${', 'exec', 'eval', 'source',
-        'rm -rf', 'rmdir', 'del', 'fdisk',
-        'mkfs', 'dd', 'shutdown', 'reboot'
+        "&&",
+        "||",
+        ";",
+        "|",
+        ">",
+        "<",
+        ">>",
+        "<<",
+        "&",
+        "$(",
+        "`",
+        "$(",
+        "${",
+        "exec",
+        "eval",
+        "source",
+        "rm -rf",
+        "rmdir",
+        "del",
+        "fdisk",
+        "mkfs",
+        "dd",
+        "shutdown",
+        "reboot",
     ]
 
     # Whitelist legitimate LaTeX flags that contain "format"
-    latex_flags = ['--format=', '-f ', '--format']
-    cmd_str = ' '.join(cmd)
+    latex_flags = ["--format=", "-f ", "--format"]
+    cmd_str = " ".join(cmd)
 
     # Check if any dangerous pattern is present but not as a LaTeX flag
     for pattern in dangerous_patterns:
         if pattern in cmd_str.lower():
             # Allow if it's part of a legitimate LaTeX flag or LaTeXML command
             is_latex_flag = any(flag in cmd_str for flag in latex_flags)
-            is_latexml_cmd = any(latex_cmd in cmd_str for latex_cmd in ['latexml', 'latexmlc', 'pdflatex', 'tectonic'])
+            is_latexml_cmd = any(
+                latex_cmd in cmd_str
+                for latex_cmd in ["latexml", "latexmlc", "pdflatex", "tectonic"]
+            )
             if not is_latex_flag and not is_latexml_cmd:
                 raise ValueError(f"Unsafe command pattern detected: {pattern}")
 
     # Additional check for dangerous commands (but not flags)
-    dangerous_commands = ['halt', 'kill', 'pkill']
+    dangerous_commands = ["halt", "kill", "pkill"]
     for cmd_part in cmd:
-        if cmd_part in dangerous_commands and not cmd_part.startswith('--'):
+        if cmd_part in dangerous_commands and not cmd_part.startswith("--"):
             raise ValueError(f"Unsafe command detected: {cmd_part}")
 
     # Check for shell injection attempts
-    dangerous_chars = [';', '&', '|', '`', '$', '(', ')', '<', '>', '~', '!']
+    dangerous_chars = [";", "&", "|", "`", "$", "(", ")", "<", ">", "~", "!"]
     if any(char in cmd_str for char in dangerous_chars):
         # Allow some safe characters but log warning
         logger.warning(f"Command contains potentially unsafe characters: {cmd_str}")
@@ -137,7 +161,7 @@ def _validate_command_safety(cmd: list[str]) -> None:
     # Check if dangerous commands appear as standalone command arguments
     # This prevents commands like: latexmlc /etc/passwd (where 'passwd' is in a path - allowed)
     # vs: latexmlc passwd (where 'passwd' is a dangerous command argument - rejected)
-    dangerous_commands = ['sudo', 'su', 'chmod', 'chown', 'passwd']
+    dangerous_commands = ["sudo", "su", "chmod", "chown", "passwd"]
     for i, cmd_part in enumerate(cmd):
         # Check arguments after the first one (executable path)
         if i > 0:
@@ -145,15 +169,26 @@ def _validate_command_safety(cmd: list[str]) -> None:
             # File paths would contain '/' or '.' indicating they're paths, not commands
             if cmd_part in dangerous_commands:
                 # Allow if it's clearly a file path (contains path separators or file extension)
-                is_file_path = '/' in cmd_part or (cmd_part.startswith('.') and len(cmd_part) > 1) or '.' in cmd_part[1:]
+                is_file_path = (
+                    "/" in cmd_part
+                    or (cmd_part.startswith(".") and len(cmd_part) > 1)
+                    or "." in cmd_part[1:]
+                )
                 if not is_file_path:
-                    raise ValueError(f"Potentially dangerous command detected: {cmd_part}")
+                    raise ValueError(
+                        f"Potentially dangerous command detected: {cmd_part}"
+                    )
 
     # Check for path traversal attempts - but allow legitimate LaTeX file paths
     # Only block if trying to access actual system directories, not paths containing "etc"
     dangerous_paths = [
-        '/etc/passwd', '/etc/shadow', '/etc/hosts',
-        '/sys/', '/proc/', '/dev/', '/root/'
+        "/etc/passwd",
+        "/etc/shadow",
+        "/etc/hosts",
+        "/sys/",
+        "/proc/",
+        "/dev/",
+        "/root/",
     ]
     for dangerous_path in dangerous_paths:
         if dangerous_path in cmd_str.lower():
@@ -161,15 +196,14 @@ def _validate_command_safety(cmd: list[str]) -> None:
 
     # Path traversal is allowed for LaTeX projects (e.g., \input{../chapter/file.tex})
     # Only block if combined with dangerous patterns
-    if '..' in cmd_str and any(pattern in cmd_str for pattern in ['/etc/', '/sys/', '/proc/']):
+    if ".." in cmd_str and any(
+        pattern in cmd_str for pattern in ["/etc/", "/sys/", "/proc/"]
+    ):
         raise ValueError(f"Suspicious path traversal pattern detected: {cmd_str}")
 
 
 def run_command_with_retry(
-    cmd: list[str],
-    max_retries: int = 3,
-    retry_delay: float = 1.0,
-    **kwargs
+    cmd: list[str], max_retries: int = 3, retry_delay: float = 1.0, **kwargs
 ) -> CommandResult:
     """
     Run command with retry logic for transient failures.
@@ -195,8 +229,11 @@ def run_command_with_retry(
         except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as exc:
             last_exception = exc
             if attempt < max_retries:
-                logger.warning(f"Command failed (attempt {attempt + 1}/{max_retries + 1}), retrying in {retry_delay}s...")
+                logger.warning(
+                    f"Command failed (attempt {attempt + 1}/{max_retries + 1}), retrying in {retry_delay}s..."
+                )
                 import time
+
                 time.sleep(retry_delay)
             else:
                 logger.error(f"Command failed after {max_retries + 1} attempts")
@@ -217,10 +254,7 @@ def check_command_available(cmd: str) -> bool:
     """
     try:
         result = subprocess.run(
-            ["which", cmd],
-            capture_output=True,
-            text=True,
-            timeout=10, check=False
+            ["which", cmd], capture_output=True, text=True, timeout=10, check=False
         )
         return result.returncode == 0
     except (subprocess.TimeoutExpired, FileNotFoundError):

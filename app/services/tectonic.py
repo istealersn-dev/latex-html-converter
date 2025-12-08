@@ -18,7 +18,12 @@ from app.utils.shell import run_command_safely
 class TectonicCompilationError(Exception):
     """Raised when Tectonic compilation fails."""
 
-    def __init__(self, message: str, error_type: str = "COMPILATION_ERROR", details: dict | None = None):
+    def __init__(
+        self,
+        message: str,
+        error_type: str = "COMPILATION_ERROR",
+        details: dict | None = None,
+    ):
         super().__init__(message)
         self.error_type = error_type
         self.details = details or {}
@@ -31,7 +36,7 @@ class TectonicTimeoutError(TectonicCompilationError):
         super().__init__(
             f"Tectonic compilation timed out after {timeout_seconds} seconds",
             "TIMEOUT_ERROR",
-            {"timeout_seconds": timeout_seconds}
+            {"timeout_seconds": timeout_seconds},
         )
 
 
@@ -74,15 +79,16 @@ class TectonicService:
                 raise TectonicCompilationError(f"Tectonic not working: {result.stderr}")
             logger.info(f"Tectonic verified: {result.stdout.strip()}")
         except FileNotFoundError:
-            raise TectonicCompilationError(f"Tectonic not found at: {self.tectonic_path}")
+            raise TectonicCompilationError(
+                f"Tectonic not found at: {self.tectonic_path}"
+            ) from None
         except Exception as exc:
-            raise TectonicCompilationError(f"Failed to verify Tectonic: {exc}")
+            raise TectonicCompilationError(
+                f"Failed to verify Tectonic: {exc}"
+            ) from exc
 
     def compile_latex(
-        self,
-        input_file: Path,
-        output_dir: Path,
-        options: dict[str, Any] | None = None
+        self, input_file: Path, output_dir: Path, options: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """
         Compile LaTeX document using Tectonic.
@@ -100,10 +106,14 @@ class TectonicService:
         """
         # Enhanced error handling and validation
         if not input_file.exists():
-            raise TectonicFileError(f"Input file not found: {input_file}", str(input_file))
+            raise TectonicFileError(
+                f"Input file not found: {input_file}", str(input_file)
+            )
 
         if not input_file.is_file():
-            raise TectonicFileError(f"Input path is not a file: {input_file}", str(input_file))
+            raise TectonicFileError(
+                f"Input path is not a file: {input_file}", str(input_file)
+            )
 
         # Security: Check for dangerous file patterns
         self._validate_input_file_security(input_file)
@@ -112,7 +122,9 @@ class TectonicService:
         try:
             ensure_directory(output_dir)
         except Exception as exc:
-            raise TectonicFileError(f"Failed to create output directory: {exc}", str(output_dir))
+            raise TectonicFileError(
+                f"Failed to create output directory: {exc}", str(output_dir)
+            ) from exc
 
         # Build Tectonic command
         cmd = self._build_command(input_file, output_dir, options)
@@ -122,16 +134,18 @@ class TectonicService:
 
         try:
             # Run Tectonic compilation with enhanced error handling
-            result = run_command_safely(cmd, cwd=input_file.parent, timeout=300)  # 5 minute timeout
+            result = run_command_safely(
+                cmd, cwd=input_file.parent, timeout=300
+            )  # 5 minute timeout
 
             if result.returncode != 0:
                 # Parse and categorize the error
                 error_info = self._parse_compilation_error(result.stderr, result.stdout)
                 logger.error(f"Tectonic compilation failed: {error_info['message']}")
                 raise TectonicCompilationError(
-                    error_info['message'],
-                    error_info['error_type'],
-                    error_info['details']
+                    error_info["message"],
+                    error_info["error_type"],
+                    error_info["details"],
                 )
 
             # Parse compilation results
@@ -140,26 +154,30 @@ class TectonicService:
             )
 
             # Validate output file was created
-            if not compilation_result.get('output_file') or not Path(compilation_result['output_file']).exists():
-                raise TectonicFileError("Compilation completed but no output file was created")
+            if (
+                not compilation_result.get("output_file")
+                or not Path(compilation_result["output_file"]).exists()
+            ):
+                raise TectonicFileError(
+                    "Compilation completed but no output file was created"
+                )
 
             logger.info(f"Compilation successful: {compilation_result['output_file']}")
             return compilation_result
 
         except subprocess.TimeoutExpired:
-            raise TectonicTimeoutError(300)
+            raise TectonicTimeoutError(300) from None
         except TectonicCompilationError:
             # Re-raise our custom errors
             raise
         except Exception as exc:
             logger.error(f"Unexpected compilation error: {exc}")
-            raise TectonicCompilationError(f"Unexpected compilation error: {exc}", "UNKNOWN_ERROR")
+            raise TectonicCompilationError(
+                f"Unexpected compilation error: {exc}", "UNKNOWN_ERROR"
+            ) from exc
 
     def _build_command(
-        self,
-        input_file: Path,
-        output_dir: Path,
-        options: dict[str, Any] | None
+        self, input_file: Path, output_dir: Path, options: dict[str, Any] | None
     ) -> list[str]:
         """
         Build Tectonic command with security considerations.
@@ -175,10 +193,7 @@ class TectonicService:
         cmd = [self.tectonic_path]
 
         # Security: Keep logs and intermediates for debugging
-        cmd.extend([
-            "--keep-logs",
-            "--keep-intermediates"
-        ])
+        cmd.extend(["--keep-logs", "--keep-intermediates"])
 
         # Security: Use untrusted mode to disable insecure features
         cmd.append("--untrusted")
@@ -209,11 +224,7 @@ class TectonicService:
         return cmd
 
     def _parse_compilation_result(
-        self,
-        input_file: Path,
-        output_dir: Path,
-        stdout: str,
-        stderr: str
+        self, input_file: Path, output_dir: Path, stdout: str, stderr: str
     ) -> dict[str, Any]:
         """
         Parse Tectonic compilation results.
@@ -232,7 +243,9 @@ class TectonicService:
 
         # Find auxiliary files
         aux_files = list(output_dir.glob(f"{input_file.stem}.*"))
-        aux_files = [f for f in aux_files if f.suffix in ['.aux', '.toc', '.bbl', '.blg', '.log']]
+        aux_files = [
+            f for f in aux_files if f.suffix in [".aux", ".toc", ".bbl", ".blg", ".log"]
+        ]
 
         return {
             "success": True,
@@ -244,22 +257,22 @@ class TectonicService:
             "stdout": stdout,
             "stderr": stderr,
             "warnings": self._extract_warnings(stderr),
-            "errors": self._extract_errors(stderr)
+            "errors": self._extract_errors(stderr),
         }
 
     def _extract_warnings(self, stderr: str) -> list[str]:
         """Extract warning messages from Tectonic output."""
         warnings = []
-        for line in stderr.split('\n'):
-            if 'warning' in line.lower() and 'error' not in line.lower():
+        for line in stderr.split("\n"):
+            if "warning" in line.lower() and "error" not in line.lower():
                 warnings.append(line.strip())
         return warnings
 
     def _extract_errors(self, stderr: str) -> list[str]:
         """Extract error messages from Tectonic output."""
         errors = []
-        for line in stderr.split('\n'):
-            if 'error' in line.lower() and 'warning' not in line.lower():
+        for line in stderr.split("\n"):
+            if "error" in line.lower() and "warning" not in line.lower():
                 errors.append(line.strip())
         return errors
 
@@ -270,7 +283,15 @@ class TectonicService:
         Args:
             output_dir: Directory containing auxiliary files
         """
-        aux_extensions = ['.aux', '.toc', '.bbl', '.blg', '.log', '.out', '.fdb_latexmk']
+        aux_extensions = [
+            ".aux",
+            ".toc",
+            ".bbl",
+            ".blg",
+            ".log",
+            ".out",
+            ".fdb_latexmk",
+        ]
 
         for ext in aux_extensions:
             for file_path in output_dir.glob(f"*{ext}"):
@@ -290,20 +311,18 @@ class TectonicService:
         Returns:
             Compilation information
         """
-        info = {
-            "output_dir": str(output_dir),
-            "files": [],
-            "total_size": 0
-        }
+        info = {"output_dir": str(output_dir), "files": [], "total_size": 0}
 
         if output_dir.exists():
             for file_path in output_dir.iterdir():
                 if file_path.is_file():
-                    info["files"].append({
-                        "name": file_path.name,
-                        "size": file_path.stat().st_size,
-                        "extension": file_path.suffix
-                    })
+                    info["files"].append(
+                        {
+                            "name": file_path.name,
+                            "size": file_path.stat().st_size,
+                            "extension": file_path.suffix,
+                        }
+                    )
                     info["total_size"] += file_path.stat().st_size
 
         return info
@@ -311,28 +330,26 @@ class TectonicService:
     def _validate_input_file_security(self, input_file: Path) -> None:
         """
         Validate input file for security issues.
-        
+
         Args:
             input_file: Input file to validate
-            
+
         Raises:
             TectonicSecurityError: If security issues are detected
         """
         # Check file extension
-        if input_file.suffix.lower() not in ['.tex', '.latex']:
+        if input_file.suffix.lower() not in [".tex", ".latex"]:
             raise TectonicSecurityError(
-                f"Invalid file extension: {input_file.suffix}",
-                "INVALID_EXTENSION"
+                f"Invalid file extension: {input_file.suffix}", "INVALID_EXTENSION"
             )
 
         # Check for dangerous patterns in filename
-        dangerous_patterns = ['..', '/', '\\', '~', '$', '`', '|', '&', ';']
+        dangerous_patterns = ["..", "/", "\\", "~", "$", "`", "|", "&", ";"]
         filename = str(input_file.name)
         for pattern in dangerous_patterns:
             if pattern in filename:
                 raise TectonicSecurityError(
-                    f"Dangerous pattern in filename: {pattern}",
-                    "DANGEROUS_FILENAME"
+                    f"Dangerous pattern in filename: {pattern}", "DANGEROUS_FILENAME"
                 )
 
         # Check file size (prevent extremely large files)
@@ -340,34 +357,28 @@ class TectonicService:
             file_size = input_file.stat().st_size
             if file_size > 50 * 1024 * 1024:  # 50MB limit
                 raise TectonicSecurityError(
-                    f"File too large: {file_size} bytes",
-                    "FILE_TOO_LARGE"
+                    f"File too large: {file_size} bytes", "FILE_TOO_LARGE"
                 )
         except OSError as exc:
             raise TectonicSecurityError(
-                f"Cannot access file: {exc}",
-                "FILE_ACCESS_ERROR"
-            )
+                f"Cannot access file: {exc}", "FILE_ACCESS_ERROR"
+            ) from exc
 
     def _parse_compilation_error(self, stderr: str, stdout: str) -> dict[str, Any]:
         """
         Parse and categorize compilation errors.
-        
+
         Args:
             stderr: Standard error output
             stdout: Standard output
-            
+
         Returns:
             Dictionary with error information
         """
         error_info = {
             "message": "Compilation failed",
             "error_type": "COMPILATION_ERROR",
-            "details": {
-                "stderr": stderr,
-                "stdout": stdout,
-                "error_lines": []
-            }
+            "details": {"stderr": stderr, "stdout": stdout, "error_lines": []},
         }
 
         # Parse common LaTeX errors
@@ -387,15 +398,20 @@ class TectonicService:
             error_info["message"] = "Required LaTeX file or package not found"
         elif "overfull" in stderr_lower or "underfull" in stderr_lower:
             error_info["error_type"] = "TYPESETTING_WARNING"
-            error_info["message"] = "Typesetting issues detected (overfull/underfull boxes)"
+            error_info["message"] = (
+                "Typesetting issues detected (overfull/underfull boxes)"
+            )
         elif "error" in stderr_lower:
             error_info["error_type"] = "GENERAL_ERROR"
             error_info["message"] = "General LaTeX compilation error"
 
         # Extract error lines
         error_lines = []
-        for line in stderr.split('\n'):
-            if any(keyword in line.lower() for keyword in ['error', 'emergency', 'undefined', 'missing']):
+        for line in stderr.split("\n"):
+            if any(
+                keyword in line.lower()
+                for keyword in ["error", "emergency", "undefined", "missing"]
+            ):
                 error_lines.append(line.strip())
 
         error_info["details"]["error_lines"] = error_lines

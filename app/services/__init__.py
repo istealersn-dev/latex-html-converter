@@ -4,6 +4,17 @@ Services package for the LaTeX → HTML5 Converter.
 This package contains service modules for external tool integration.
 """
 
+from .asset_validator import (
+    AssetValidationError,
+    AssetValidationFileError,
+    AssetValidator,
+)
+from .assets import (
+    AssetConversionError,
+    AssetConversionFileError,
+    AssetConversionService,
+    AssetConversionTimeoutError,
+)
 from .html_post import (
     HTMLCleaningError,
     HTMLPostProcessingError,
@@ -26,11 +37,22 @@ from .orchestrator import (
     get_orchestrator,
     shutdown_orchestrator,
 )
+from .pdf import (
+    PDFConversionError,
+    PDFConversionFileError,
+    PDFConversionService,
+    PDFConversionTimeoutError,
+)
 from .pipeline import (
     ConversionPipeline,
     ConversionPipelineError,
     PipelineResourceError,
     PipelineTimeoutError,
+)
+from .svg_optimizer import (
+    SVGOptimizationError,
+    SVGOptimizationFileError,
+    SVGOptimizer,
 )
 from .tectonic import (
     TectonicCompilationError,
@@ -39,33 +61,11 @@ from .tectonic import (
     TectonicService,
     TectonicTimeoutError,
 )
-from .assets import (
-    AssetConversionError,
-    AssetConversionFileError,
-    AssetConversionService,
-    AssetConversionTimeoutError,
-)
 from .tikz import (
     TikZConversionError,
     TikZConversionFileError,
     TikZConversionService,
     TikZConversionTimeoutError,
-)
-from .pdf import (
-    PDFConversionError,
-    PDFConversionFileError,
-    PDFConversionService,
-    PDFConversionTimeoutError,
-)
-from .svg_optimizer import (
-    SVGOptimizationError,
-    SVGOptimizationFileError,
-    SVGOptimizer,
-)
-from .asset_validator import (
-    AssetValidationError,
-    AssetValidationFileError,
-    AssetValidator,
 )
 
 __all__ = [

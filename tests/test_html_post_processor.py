@@ -45,7 +45,7 @@ class TestHTMLPostProcessor:
         </html>
         """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             html_file = Path(f.name)
 
@@ -74,11 +74,11 @@ class TestHTMLPostProcessor:
         </html>
         """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             html_file = Path(f.name)
 
-        with tempfile.NamedTemporaryFile(suffix='.html', delete=False) as output_f:
+        with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as output_f:
             output_file = Path(output_f.name)
 
         try:
@@ -116,7 +116,7 @@ class TestHTMLPostProcessor:
         </html>
         """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             html_file = Path(f.name)
 
@@ -144,7 +144,7 @@ class TestHTMLPostProcessor:
         </html>
         """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             html_file = Path(f.name)
 
@@ -173,7 +173,7 @@ class TestHTMLPostProcessor:
         </html>
         """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             html_file = Path(f.name)
 
@@ -199,7 +199,7 @@ class TestHTMLPostProcessor:
         </html>
         """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             html_file = Path(f.name)
 
@@ -223,7 +223,7 @@ class TestHTMLPostProcessor:
         </body>
         """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             html_file = Path(f.name)
 
@@ -231,7 +231,10 @@ class TestHTMLPostProcessor:
             result = processor.process_html(html_file)
 
             # Should have warnings about missing elements
-            assert "html_validation" in result["steps_completed"] or len(result["warnings"]) > 0
+            assert (
+                "html_validation" in result["steps_completed"]
+                or len(result["warnings"]) > 0
+            )
         finally:
             html_file.unlink()
 
@@ -249,7 +252,7 @@ class TestHTMLPostProcessor:
         </html>
         """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             html_file = Path(f.name)
 
@@ -257,7 +260,10 @@ class TestHTMLPostProcessor:
             result = processor.process_html(html_file)
 
             # Should have warnings about invalid nesting
-            assert "html_validation" in result["steps_completed"] or len(result["warnings"]) > 0
+            assert (
+                "html_validation" in result["steps_completed"]
+                or len(result["warnings"]) > 0
+            )
         finally:
             html_file.unlink()
 
@@ -276,7 +282,7 @@ class TestHTMLPostProcessor:
         </html>
         """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             html_file = Path(f.name)
 
@@ -284,7 +290,10 @@ class TestHTMLPostProcessor:
             result = processor.process_html(html_file)
 
             # Should have warnings about missing alt text
-            assert "html_validation" in result["steps_completed"] or len(result["warnings"]) > 0
+            assert (
+                "html_validation" in result["steps_completed"]
+                or len(result["warnings"]) > 0
+            )
         finally:
             html_file.unlink()
 
@@ -303,7 +312,7 @@ class TestHTMLPostProcessor:
         </html>
         """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             html_file = Path(f.name)
 
@@ -330,7 +339,7 @@ class TestHTMLPostProcessor:
         </html>
         """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             html_file = Path(f.name)
 
@@ -356,7 +365,7 @@ class TestHTMLPostProcessor:
         </html>
         """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             html_file = Path(f.name)
 
@@ -382,7 +391,7 @@ class TestHTMLPostProcessor:
         </html>
         """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             html_file = Path(f.name)
 
@@ -409,7 +418,7 @@ class TestHTMLPostProcessor:
         </html>
         """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             html_file = Path(f.name)
 
@@ -437,7 +446,7 @@ class TestHTMLPostProcessor:
         </html>
         """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             html_file = Path(f.name)
 
@@ -464,7 +473,7 @@ class TestHTMLPostProcessor:
         </html>
         """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             html_file = Path(f.name)
 
@@ -490,7 +499,7 @@ class TestHTMLPostProcessor:
         </html>
         """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             html_file = Path(f.name)
 
@@ -516,7 +525,7 @@ class TestHTMLPostProcessor:
         </html>
         """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             html_file = Path(f.name)
 
@@ -548,7 +557,7 @@ class TestHTMLPostProcessor:
         <invalid>This should cause validation error</invalid>
         """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(invalid_html)
             html_file = Path(f.name)
 
