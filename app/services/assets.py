@@ -4,25 +4,25 @@ Asset conversion service for the LaTeX → HTML5 Converter.
 This service orchestrates the conversion of TikZ diagrams and PDF figures to SVG format.
 """
 
-import logging
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from loguru import logger
 
 from app.exceptions import BaseServiceError, ServiceFileError, ServiceTimeoutError
 from app.services.pdf import PDFConversionError, PDFConversionService
-from app.services.svg_optimizer import SVGOptimizationError, SVGOptimizer
+from app.services.svg_optimizer import SVGOptimizer
 from app.services.tikz import TikZConversionError, TikZConversionService
-from app.utils.fs import cleanup_directory, ensure_directory, get_file_info
-from app.utils.shell import run_command_safely
+from app.utils.fs import cleanup_directory, ensure_directory
 
 
 class AssetConversionError(BaseServiceError):
     """Base exception for asset conversion errors."""
 
-    def __init__(self, message: str, asset_type: str, details: Dict[str, Any] | None = None):
+    def __init__(
+        self, message: str, asset_type: str, details: dict[str, Any] | None = None
+    ):
         super().__init__(message, "ASSET_CONVERSION_ERROR", details)
         self.asset_type = asset_type
 
@@ -34,7 +34,7 @@ class AssetConversionTimeoutError(AssetConversionError, ServiceTimeoutError):
         super().__init__(
             f"Asset conversion timed out after {timeout} seconds",
             asset_type,
-            {"timeout": timeout}
+            {"timeout": timeout},
         )
 
 
@@ -52,7 +52,7 @@ class AssetConversionService:
         self,
         tikz_service: TikZConversionService | None = None,
         pdf_service: PDFConversionService | None = None,
-        svg_optimizer: SVGOptimizer | None = None
+        svg_optimizer: SVGOptimizer | None = None,
     ):
         """
         Initialize the asset conversion service.
@@ -63,14 +63,14 @@ class AssetConversionService:
             svg_optimizer: SVG optimization service instance
         """
         from app.config import settings
+
         self.tikz_service = tikz_service or TikZConversionService(
-            dvisvgm_path=settings.DVISVGM_PATH,
-            tectonic_path=settings.PDFLATEX_PATH
+            dvisvgm_path=settings.DVISVGM_PATH, tectonic_path=settings.PDFLATEX_PATH
         )
         self.pdf_service = pdf_service or PDFConversionService(
             gs_path="/usr/bin/gs",  # Docker path for ghostscript
             pdfinfo_path="/usr/bin/pdfinfo",  # Docker path for pdfinfo
-            pdftoppm_path="/usr/bin/pdftoppm"  # Docker path for pdftoppm
+            pdftoppm_path="/usr/bin/pdftoppm",  # Docker path for pdftoppm
         )
         self.svg_optimizer = svg_optimizer or SVGOptimizer()
 
@@ -80,7 +80,7 @@ class AssetConversionService:
         self.cleanup_delay = 3600  # 1 hour
 
         # Active conversions tracking
-        self._active_conversions: Dict[str, Dict[str, Any]] = {}
+        self._active_conversions: dict[str, dict[str, Any]] = {}
 
         logger.info("Asset conversion service initialized")
 
@@ -88,9 +88,9 @@ class AssetConversionService:
         self,
         input_dir: Path,
         output_dir: Path,
-        asset_types: List[str] | None = None,
-        options: Dict[str, Any] | None = None
-    ) -> Dict[str, Any]:
+        asset_types: list[str] | None = None,
+        options: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """
         Convert all assets in the input directory to SVG format.
 
@@ -112,14 +112,14 @@ class AssetConversionService:
                 raise AssetConversionFileError(
                     f"Input directory not found: {input_dir}",
                     "directory",
-                    str(input_dir)
+                    str(input_dir),
                 )
 
             if not input_dir.is_dir():
                 raise AssetConversionFileError(
                     f"Input path is not a directory: {input_dir}",
                     "directory",
-                    str(input_dir)
+                    str(input_dir),
                 )
 
             # Ensure output directory exists
@@ -148,7 +148,7 @@ class AssetConversionService:
                     "converted_assets": [],
                     "total_assets": 0,
                     "conversion_time": 0.0,
-                    "output_directory": str(output_dir)
+                    "output_directory": str(output_dir),
                 }
 
             # Convert assets
@@ -157,8 +157,12 @@ class AssetConversionService:
             conversion_time = time.time() - start_time
 
             # Generate summary
-            successful_conversions = [r for r in conversion_results if r.get("success", False)]
-            failed_conversions = [r for r in conversion_results if not r.get("success", False)]
+            successful_conversions = [
+                r for r in conversion_results if r.get("success", False)
+            ]
+            failed_conversions = [
+                r for r in conversion_results if not r.get("success", False)
+            ]
 
             result = {
                 "success": len(failed_conversions) == 0,
@@ -168,10 +172,13 @@ class AssetConversionService:
                 "successful_conversions": len(successful_conversions),
                 "failed_conversions": len(failed_conversions),
                 "conversion_time": conversion_time,
-                "output_directory": str(output_dir)
+                "output_directory": str(output_dir),
             }
 
-            logger.info(f"Asset conversion completed: {len(successful_conversions)}/{len(assets)} successful")
+            logger.info(
+                f"Asset conversion completed: "
+                f"{len(successful_conversions)}/{len(assets)} successful"
+            )
             if failed_conversions:
                 logger.warning(f"Failed conversions: {len(failed_conversions)}")
 
@@ -182,13 +189,13 @@ class AssetConversionService:
             raise
         except Exception as exc:
             logger.error(f"Unexpected asset conversion error: {exc}")
-            raise AssetConversionError(f"Unexpected asset conversion error: {exc}", "unknown")
+            raise AssetConversionError(
+                f"Unexpected asset conversion error: {exc}", "unknown"
+            ) from exc
 
     def _discover_assets(
-        self,
-        input_dir: Path,
-        asset_types: List[str]
-    ) -> List[Dict[str, Any]]:
+        self, input_dir: Path, asset_types: list[str]
+    ) -> list[dict[str, Any]]:
         """
         Discover assets in the input directory.
 
@@ -211,7 +218,7 @@ class AssetConversionService:
 
         return assets
 
-    def _discover_tikz_assets(self, input_dir: Path) -> List[Dict[str, Any]]:
+    def _discover_tikz_assets(self, input_dir: Path) -> list[dict[str, Any]]:
         """Discover TikZ assets in the input directory."""
         tikz_assets = []
 
@@ -221,43 +228,44 @@ class AssetConversionService:
                 with open(tex_file, encoding="utf-8") as f:
                     content = f.read()
                     if "\\begin{tikzpicture}" in content or "tikz" in content.lower():
-                        tikz_assets.append({
-                            "type": "tikz",
-                            "source_file": tex_file,
-                            "relative_path": tex_file.relative_to(input_dir),
-                            "size": tex_file.stat().st_size,
-                            "modified": tex_file.stat().st_mtime
-                        })
+                        tikz_assets.append(
+                            {
+                                "type": "tikz",
+                                "source_file": tex_file,
+                                "relative_path": tex_file.relative_to(input_dir),
+                                "size": tex_file.stat().st_size,
+                                "modified": tex_file.stat().st_mtime,
+                            }
+                        )
             except Exception as exc:
                 logger.warning(f"Could not read TikZ file {tex_file}: {exc}")
 
         return tikz_assets
 
-    def _discover_pdf_assets(self, input_dir: Path) -> List[Dict[str, Any]]:
+    def _discover_pdf_assets(self, input_dir: Path) -> list[dict[str, Any]]:
         """Discover PDF assets in the input directory."""
         pdf_assets = []
 
         # Look for .pdf files
         for pdf_file in input_dir.rglob("*.pdf"):
             try:
-                pdf_assets.append({
-                    "type": "pdf",
-                    "source_file": pdf_file,
-                    "relative_path": pdf_file.relative_to(input_dir),
-                    "size": pdf_file.stat().st_size,
-                    "modified": pdf_file.stat().st_mtime
-                })
+                pdf_assets.append(
+                    {
+                        "type": "pdf",
+                        "source_file": pdf_file,
+                        "relative_path": pdf_file.relative_to(input_dir),
+                        "size": pdf_file.stat().st_size,
+                        "modified": pdf_file.stat().st_mtime,
+                    }
+                )
             except Exception as exc:
                 logger.warning(f"Could not read PDF file {pdf_file}: {exc}")
 
         return pdf_assets
 
     def _convert_assets_batch(
-        self,
-        assets: List[Dict[str, Any]],
-        output_dir: Path,
-        options: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
+        self, assets: list[dict[str, Any]], output_dir: Path, options: dict[str, Any]
+    ) -> list[dict[str, Any]]:
         """
         Convert a batch of assets to SVG.
 
@@ -274,7 +282,7 @@ class AssetConversionService:
         for asset in assets:
             try:
                 logger.info(f"Converting {asset['type']} asset: {asset['source_file']}")
-                
+
                 if asset["type"] == "tikz":
                     result = self._convert_tikz_asset(asset, output_dir, options)
                 elif asset["type"] == "pdf":
@@ -283,34 +291,25 @@ class AssetConversionService:
                     result = {
                         "success": False,
                         "error": f"Unknown asset type: {asset['type']}",
-                        "asset": asset
+                        "asset": asset,
                     }
 
                 results.append(result)
 
             except Exception as exc:
                 logger.error(f"Error converting asset {asset['source_file']}: {exc}")
-                results.append({
-                    "success": False,
-                    "error": str(exc),
-                    "asset": asset
-                })
+                results.append({"success": False, "error": str(exc), "asset": asset})
 
         return results
 
     def _convert_tikz_asset(
-        self,
-        asset: Dict[str, Any],
-        output_dir: Path,
-        options: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, asset: dict[str, Any], output_dir: Path, options: dict[str, Any]
+    ) -> dict[str, Any]:
         """Convert a TikZ asset to SVG."""
         try:
             # Use TikZ service to convert
             result = self.tikz_service.convert_tikz_to_svg(
-                asset["source_file"],
-                output_dir,
-                options
+                asset["source_file"], output_dir, options
             )
 
             return {
@@ -319,7 +318,7 @@ class AssetConversionService:
                 "output_file": result.get("output_file"),
                 "conversion_time": result.get("conversion_time", 0.0),
                 "file_size": result.get("file_size", 0),
-                "optimization_ratio": result.get("optimization_ratio", 1.0)
+                "optimization_ratio": result.get("optimization_ratio", 1.0),
             }
 
         except TikZConversionError as exc:
@@ -327,22 +326,17 @@ class AssetConversionService:
                 "success": False,
                 "error": str(exc),
                 "asset": asset,
-                "error_type": "tikz_conversion"
+                "error_type": "tikz_conversion",
             }
 
     def _convert_pdf_asset(
-        self,
-        asset: Dict[str, Any],
-        output_dir: Path,
-        options: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, asset: dict[str, Any], output_dir: Path, options: dict[str, Any]
+    ) -> dict[str, Any]:
         """Convert a PDF asset to SVG."""
         try:
             # Use PDF service to convert
             result = self.pdf_service.convert_pdf_to_svg(
-                asset["source_file"],
-                output_dir,
-                options
+                asset["source_file"], output_dir, options
             )
 
             return {
@@ -351,7 +345,7 @@ class AssetConversionService:
                 "output_file": result.get("output_file"),
                 "conversion_time": result.get("conversion_time", 0.0),
                 "file_size": result.get("file_size", 0),
-                "optimization_ratio": result.get("optimization_ratio", 1.0)
+                "optimization_ratio": result.get("optimization_ratio", 1.0),
             }
 
         except PDFConversionError as exc:
@@ -359,10 +353,10 @@ class AssetConversionService:
                 "success": False,
                 "error": str(exc),
                 "asset": asset,
-                "error_type": "pdf_conversion"
+                "error_type": "pdf_conversion",
             }
 
-    def get_conversion_status(self, conversion_id: str) -> Dict[str, Any] | None:
+    def get_conversion_status(self, conversion_id: str) -> dict[str, Any] | None:
         """
         Get the status of a specific conversion.
 
@@ -387,24 +381,24 @@ class AssetConversionService:
         try:
             if conversion_id in self._active_conversions:
                 conversion = self._active_conversions[conversion_id]
-                
+
                 # Clean up temporary files
                 if "temp_dir" in conversion:
                     cleanup_directory(Path(conversion["temp_dir"]))
-                
+
                 # Remove from active conversions
                 del self._active_conversions[conversion_id]
-                
+
                 logger.info(f"Cleaned up conversion {conversion_id}")
                 return True
-            
+
             return False
 
         except Exception as exc:
             logger.error(f"Error cleaning up conversion {conversion_id}: {exc}")
             return False
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """
         Get conversion statistics.
 
@@ -415,5 +409,5 @@ class AssetConversionService:
             "active_conversions": len(self._active_conversions),
             "max_concurrent": self.max_concurrent_conversions,
             "default_timeout": self.default_timeout,
-            "cleanup_delay": self.cleanup_delay
+            "cleanup_delay": self.cleanup_delay,
         }

@@ -5,15 +5,16 @@ This module initializes the FastAPI application with proper configuration,
 middleware, and routing for the LaTeX to HTML5 conversion service.
 """
 
-import uvicorn
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
 from loguru import logger
 
 from app.api import conversion, health
@@ -27,6 +28,7 @@ templates = None
 def validate_tool_paths() -> None:
     """Validate that required external tools are available."""
     from pathlib import Path
+
     from app.utils.shell import check_command_available
 
     required_tools = {
@@ -55,7 +57,8 @@ def validate_tool_paths() -> None:
         )
     elif missing_tools:
         logger.warning(
-            f"Some tools not found (non-fatal in {settings.ENVIRONMENT}): {', '.join(missing_tools)}"
+            f"Some tools not found (non-fatal in {settings.ENVIRONMENT}): "
+            f"{', '.join(missing_tools)}"
         )
 
 
@@ -105,12 +108,15 @@ def create_app() -> FastAPI:
     """
     app = FastAPI(
         title="LaTeX → HTML5 Converter",
-        description="FastAPI-based service converting LaTeX projects to clean HTML5 with ≥95% fidelity",
+        description=(
+            "FastAPI-based service converting LaTeX projects to clean "
+            "HTML5 with ≥95% fidelity"
+        ),
         version="0.1.0",
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_url="/openapi.json",
-        lifespan=lifespan
+        lifespan=lifespan,
     )
 
     # Add middleware
@@ -142,10 +148,7 @@ def setup_middleware(app: FastAPI) -> None:
     )
 
     # Trusted host middleware
-    app.add_middleware(
-        TrustedHostMiddleware,
-        allowed_hosts=settings.ALLOWED_HOSTS
-    )
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
 
     # Custom logging middleware
     app.add_middleware(LoggingMiddleware)  # type: ignore
@@ -158,6 +161,7 @@ def setup_routers(app: FastAPI) -> None:
     Args:
         app: FastAPI application instance
     """
+
     # Web UI route
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     async def index(request: Request):
@@ -185,9 +189,14 @@ def setup_logging() -> None:
     # Add console handler
     logger.add(
         sink=lambda msg: print(msg, end=""),
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+        format=(
+            "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
+            "<level>{level: <8}</level> | "
+            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+            "<level>{message}</level>"
+        ),
         level=settings.LOG_LEVEL,
-        colorize=True
+        colorize=True,
     )
 
     # Add file handler for production
@@ -201,7 +210,10 @@ def setup_logging() -> None:
             rotation="1 day",
             retention="30 days",
             level=settings.LOG_LEVEL,
-            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
+            format=(
+                "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
+                "{name}:{function}:{line} - {message}"
+            ),
         )
 
 
@@ -215,5 +227,5 @@ if __name__ == "__main__":
         host=settings.HOST,
         port=settings.PORT,
         reload=settings.DEBUG,
-        log_level=settings.LOG_LEVEL.lower()
+        log_level=settings.LOG_LEVEL.lower(),
     )

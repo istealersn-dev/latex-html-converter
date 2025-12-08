@@ -5,7 +5,6 @@ This module defines Pydantic models for API request validation.
 """
 # pylint: disable=no-self-argument
 
-
 from pydantic import BaseModel, Field, validator
 
 
@@ -24,41 +23,29 @@ class ConversionRequest(BaseModel):
 
     # Conversion options
     math_rendering: str = Field(
-        default="mathjax",
-        description="Math rendering method (mathjax, mathml, svg)"
+        default="mathjax", description="Math rendering method (mathjax, mathml, svg)"
     )
     figure_conversion: str = Field(
-        default="svg",
-        description="Figure conversion format (svg, png, pdf)"
+        default="svg", description="Figure conversion format (svg, png, pdf)"
     )
     output_format: str = Field(
-        default="html5",
-        description="Output format (html5, xhtml)"
+        default="html5", description="Output format (html5, xhtml)"
     )
 
     # Advanced options
     include_source: bool = Field(
-        default=False,
-        description="Include LaTeX source in output"
+        default=False, description="Include LaTeX source in output"
     )
     preserve_structure: bool = Field(
-        default=True,
-        description="Preserve document structure"
+        default=True, description="Preserve document structure"
     )
-    custom_css: str | None = Field(
-        default=None,
-        description="Custom CSS for styling"
-    )
+    custom_css: str | None = Field(default=None, description="Custom CSS for styling")
 
     # Processing options
     timeout: int | None = Field(
-        default=None,
-        description="Conversion timeout in seconds"
+        default=None, description="Conversion timeout in seconds"
     )
-    max_retries: int = Field(
-        default=3,
-        description="Maximum number of retry attempts"
-    )
+    max_retries: int = Field(default=3, description="Maximum number of retry attempts")
 
     @validator("math_rendering")
     def validate_math_rendering(self, v: str) -> str:

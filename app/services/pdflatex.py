@@ -1,7 +1,8 @@
 """
 PDFLaTeX compilation service.
 
-This module provides LaTeX compilation using pdflatex with a Tectonic-compatible interface.
+This module provides LaTeX compilation using pdflatex with a
+Tectonic-compatible interface.
 It adapts Tectonic-specific flags and options to work with traditional pdflatex.
 """
 
@@ -18,7 +19,12 @@ from app.utils.shell import run_command_safely
 class PDFLaTeXCompilationError(Exception):
     """Raised when PDFLaTeX compilation fails."""
 
-    def __init__(self, message: str, error_type: str = "COMPILATION_ERROR", details: dict | None = None):
+    def __init__(
+        self,
+        message: str,
+        error_type: str = "COMPILATION_ERROR",
+        details: dict | None = None,
+    ):
         super().__init__(message)
         self.error_type = error_type
         self.details = details or {}
@@ -42,7 +48,8 @@ class PDFLaTeXService:
     """
     Service for LaTeX compilation using pdflatex with Tectonic-compatible interface.
 
-    This service adapts Tectonic-specific flags and options to work with traditional pdflatex.
+    This service adapts Tectonic-specific flags and options to work
+    with traditional pdflatex.
     """
 
     def __init__(self, pdflatex_path: str = "pdflatex"):
@@ -63,15 +70,14 @@ class PDFLaTeXService:
                 raise PDFLaTeXCompilationError(f"pdflatex not working: {result.stderr}")
             logger.info(f"PDFLaTeX verified: {result.stdout.strip()}")
         except FileNotFoundError:
-            raise PDFLaTeXCompilationError(f"pdflatex not found at: {self.pdflatex_path}")
+            raise PDFLaTeXCompilationError(
+                f"pdflatex not found at: {self.pdflatex_path}"
+            ) from None
         except Exception as exc:
-            raise PDFLaTeXCompilationError(f"Failed to verify pdflatex: {exc}")
+            raise PDFLaTeXCompilationError(f"Failed to verify pdflatex: {exc}") from exc
 
     def compile_latex(
-        self,
-        input_file: Path,
-        output_dir: Path,
-        options: dict[str, Any] | None = None
+        self, input_file: Path, output_dir: Path, options: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """
         Compile LaTeX file using pdflatex with Tectonic-compatible interface.
@@ -101,7 +107,7 @@ class PDFLaTeXService:
             result = run_command_safely(
                 cmd,
                 cwd=input_file.parent,
-                timeout=options.get("timeout", 300) if options else 300
+                timeout=options.get("timeout", 300) if options else 300,
             )
 
             # Parse results
@@ -113,7 +119,7 @@ class PDFLaTeXService:
                 raise PDFLaTeXCompilationError(
                     f"pdflatex compilation failed: {result.stderr}",
                     "COMPILATION_ERROR",
-                    {"stdout": result.stdout, "stderr": result.stderr}
+                    {"stdout": result.stdout, "stderr": result.stderr},
                 )
 
             logger.info(f"LaTeX compilation completed: {input_file}")
@@ -124,17 +130,16 @@ class PDFLaTeXService:
         except subprocess.TimeoutExpired as exc:
             raise PDFLaTeXTimeoutError(
                 f"pdflatex compilation timed out after {exc.timeout} seconds",
-                exc.timeout
-            )
+                exc.timeout,
+            ) from exc
         except Exception as exc:
             logger.error(f"Unexpected compilation error: {exc}")
-            raise PDFLaTeXCompilationError(f"Unexpected compilation error: {exc}", "UNKNOWN_ERROR")
+            raise PDFLaTeXCompilationError(
+                f"Unexpected compilation error: {exc}", "UNKNOWN_ERROR"
+            ) from exc
 
     def _build_command(
-        self,
-        input_file: Path,
-        output_dir: Path,
-        options: dict[str, Any] | None
+        self, input_file: Path, output_dir: Path, options: dict[str, Any] | None
     ) -> list[str]:
         """
         Build pdflatex command with Tectonic-compatible options.
@@ -164,9 +169,13 @@ class PDFLaTeXService:
 
         # Add custom options if provided
         if options:
-            # Map engine options (pdflatex doesn't support engine switching like Tectonic)
+            # Map engine options (pdflatex doesn't support engine
+            # switching like Tectonic)
             if options.get("engine", "").lower() in ["xelatex", "lualatex"]:
-                logger.warning(f"Engine '{options.get('engine')}' not supported by pdflatex, using pdflatex")
+                logger.warning(
+                    f"Engine '{options.get('engine')}' not supported by "
+                    f"pdflatex, using pdflatex"
+                )
 
             # Add custom arguments
             if "extra_args" in options:
@@ -178,11 +187,7 @@ class PDFLaTeXService:
         return cmd
 
     def _parse_compilation_result(
-        self,
-        input_file: Path,
-        output_dir: Path,
-        stdout: str,
-        stderr: str
+        self, input_file: Path, output_dir: Path, stdout: str, stderr: str
     ) -> dict[str, Any]:
         """
         Parse pdflatex compilation results.
@@ -198,7 +203,7 @@ class PDFLaTeXService:
         """
         # Find the generated PDF file
         pdf_file = output_dir / f"{input_file.stem}.pdf"
-        
+
         result = {
             "success": pdf_file.exists(),
             "pdf_file": str(pdf_file) if pdf_file.exists() else None,
@@ -206,13 +211,13 @@ class PDFLaTeXService:
             "stdout": stdout,
             "stderr": stderr,
             "warnings": [],
-            "errors": []
+            "errors": [],
         }
 
         # Parse output for warnings and errors
         if stderr:
             # Common LaTeX warnings and errors
-            lines = stderr.split('\n')
+            lines = stderr.split("\n")
             for line in lines:
                 if "Warning:" in line:
                     result["warnings"].append(line.strip())

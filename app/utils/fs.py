@@ -142,11 +142,7 @@ def cleanup_directory(path: str | Path, keep_files: set[str] | None = None) -> N
         raise
 
 
-def safe_copy_file(
-    src: str | Path,
-    dst: str | Path,
-    overwrite: bool = False
-) -> Path:
+def safe_copy_file(src: str | Path, dst: str | Path, overwrite: bool = False) -> Path:
     """
     Safely copy a file with validation.
 
@@ -187,11 +183,7 @@ def safe_copy_file(
         raise
 
 
-def safe_move_file(
-    src: str | Path,
-    dst: str | Path,
-    overwrite: bool = False
-) -> Path:
+def safe_move_file(src: str | Path, dst: str | Path, overwrite: bool = False) -> Path:
     """
     Safely move a file with validation.
 
@@ -264,7 +256,7 @@ def get_file_info(path: str | Path) -> dict:
             "is_file": path.is_file(),
             "is_dir": path.is_dir(),
             "extension": path.suffix,
-            "stem": path.stem
+            "stem": path.stem,
         }
     except OSError as exc:
         logger.error(f"Failed to get file info for {path}: {exc}")
@@ -272,9 +264,7 @@ def get_file_info(path: str | Path) -> dict:
 
 
 def find_files(
-    directory: str | Path,
-    pattern: str = "*",
-    recursive: bool = True
+    directory: str | Path, pattern: str = "*", recursive: bool = True
 ) -> list[Path]:
     """
     Find files matching pattern in directory.
@@ -303,7 +293,11 @@ def find_files(
         raise ValueError(f"Path is not a directory: {directory}")
 
     try:
-        files = list(directory.rglob(pattern)) if recursive else list(directory.glob(pattern))
+        files = (
+            list(directory.rglob(pattern))
+            if recursive
+            else list(directory.glob(pattern))
+        )
 
         # Filter out directories
         files = [f for f in files if f.is_file()]
@@ -348,8 +342,8 @@ def _validate_path_safety(path: Path, allow_relative: bool = False) -> None:
     # Convert to absolute path for validation
     try:
         abs_path = path.resolve()
-    except OSError:
-        raise ValueError(f"Invalid path: {path}")
+    except OSError as exc:
+        raise ValueError(f"Invalid path: {path}") from exc
 
     # For relative paths, check if resolved path escapes workspace
     # Only block if it tries to access system directories
@@ -371,11 +365,11 @@ def _validate_path_safety(path: Path, allow_relative: bool = False) -> None:
     if not allow_relative:
         try:
             cwd = Path.cwd().resolve()
-            # Check if path is within current working directory tree or standard work dirs
+            # Check if path is within current working directory tree
+            # or standard work dirs
             work_dirs = [cwd, Path("/app"), Path("/tmp"), Path("/home")]
             is_in_work_dir = any(
-                str(abs_path).startswith(str(work_dir))
-                for work_dir in work_dirs
+                str(abs_path).startswith(str(work_dir)) for work_dir in work_dirs
             )
 
             if not is_in_work_dir:

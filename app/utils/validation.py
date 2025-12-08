@@ -6,7 +6,6 @@ across different configuration and model classes.
 """
 
 
-
 class ValidationUtils:
     """Shared validation utilities for common validation patterns."""
 
@@ -14,14 +13,14 @@ class ValidationUtils:
     def validate_file_size(size: int, max_size: int = 500 * 1024 * 1024) -> int:
         """
         Validate file size with common logic.
-        
+
         Args:
             size: File size in bytes
             max_size: Maximum allowed file size in bytes
-            
+
         Returns:
             Validated file size
-            
+
         Raises:
             ValueError: If file size is invalid
         """
@@ -35,14 +34,14 @@ class ValidationUtils:
     def validate_output_format(format_str: str, allowed_formats: list[str]) -> str:
         """
         Validate output format with common logic.
-        
+
         Args:
             format_str: Output format string
             allowed_formats: List of allowed formats
-            
+
         Returns:
             Validated and normalized format string
-            
+
         Raises:
             ValueError: If format is not allowed
         """
@@ -54,14 +53,14 @@ class ValidationUtils:
     def validate_timeout(timeout: int, max_timeout: int = 3600) -> int:
         """
         Validate timeout value with common logic.
-        
+
         Args:
             timeout: Timeout in seconds
             max_timeout: Maximum allowed timeout in seconds
-            
+
         Returns:
             Validated timeout
-            
+
         Raises:
             ValueError: If timeout is invalid
         """
@@ -75,33 +74,33 @@ class ValidationUtils:
     def validate_extensions(extensions: list[str]) -> list[str]:
         """
         Validate file extensions with common logic.
-        
+
         Args:
             extensions: List of file extensions
-            
+
         Returns:
             Normalized extensions (ensuring they start with dot)
-            
+
         Raises:
             ValueError: If extensions are invalid
         """
         if not extensions:
             raise ValueError("At least one extension must be allowed")
         # Ensure extensions start with dot
-        return [ext if ext.startswith('.') else f'.{ext}' for ext in extensions]
+        return [ext if ext.startswith(".") else f".{ext}" for ext in extensions]
 
     @staticmethod
     def validate_positive_integer(value: int, field_name: str) -> int:
         """
         Validate positive integer with common logic.
-        
+
         Args:
             value: Integer value to validate
             field_name: Name of the field for error messages
-            
+
         Returns:
             Validated integer
-            
+
         Raises:
             ValueError: If value is not positive
         """

@@ -10,7 +10,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-import pytest
+import pytest  # noqa: E402
 
 
 def run_tests():
@@ -24,7 +24,7 @@ def run_tests():
         "tests/test_tectonic_integration.py",
         "tests/test_latexml_service.py",
         "tests/test_latexml_integration.py",
-        "tests/test_html_post_processor.py"
+        "tests/test_html_post_processor.py",
     ]
 
     for test_file in test_files:

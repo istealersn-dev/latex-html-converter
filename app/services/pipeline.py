@@ -6,7 +6,6 @@ Tectonic → LaTeXML → HTML Post-Processing
 """
 
 import threading
-import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -15,7 +14,6 @@ from typing import Any
 from loguru import logger
 
 from app.models.conversion import (
-    ConversionDiagnostics,
     ConversionJob,
     ConversionOptions,
     ConversionProgress,
@@ -24,7 +22,11 @@ from app.models.conversion import (
     ConversionStatus,
     PipelineStage,
 )
-from app.services.file_discovery import FileDiscoveryService, ProjectStructure, LatexDependencies
+from app.services.file_discovery import (
+    FileDiscoveryService,
+    LatexDependencies,
+    ProjectStructure,
+)
 from app.services.html_post import HTMLPostProcessingError, HTMLPostProcessor
 from app.services.latexml import LaTeXMLError, LaTeXMLService
 from app.services.package_manager import PackageManagerService
@@ -58,7 +60,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
         latexml_service: LaTeXMLService | None = None,
         html_processor: HTMLPostProcessor | None = None,
         file_discovery: FileDiscoveryService | None = None,
-        package_manager: PackageManagerService | None = None
+        package_manager: PackageManagerService | None = None,
     ):
         """
         Initialize the conversion pipeline.
@@ -74,13 +76,19 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
         from app.configs.latexml import LaTeXMLSettings
         from app.services.assets import AssetConversionService
 
-        self.tectonic_service = tectonic_service or PDFLaTeXService(pdflatex_path=settings.PDFLATEX_PATH)
+        self.tectonic_service = tectonic_service or PDFLaTeXService(
+            pdflatex_path=settings.PDFLATEX_PATH
+        )
         # Use LaTeXMLSettings() to pick up environment variables
-        self.latexml_service = latexml_service or LaTeXMLService(settings=LaTeXMLSettings())
+        self.latexml_service = latexml_service or LaTeXMLService(
+            settings=LaTeXMLSettings()
+        )
 
         # Initialize asset conversion service for PDF -> PNG conversion
         asset_service = AssetConversionService()
-        self.html_processor = html_processor or HTMLPostProcessor(asset_conversion_service=asset_service)
+        self.html_processor = html_processor or HTMLPostProcessor(
+            asset_conversion_service=asset_service
+        )
 
         self.file_discovery = file_discovery or FileDiscoveryService()
         self.package_manager = package_manager or PackageManagerService()
@@ -99,7 +107,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
         input_file: Path,
         output_dir: Path,
         options: ConversionOptions | None = None,
-        job_id: str | None = None
+        job_id: str | None = None,
     ) -> ConversionJob:
         """
         Create a new conversion job.
@@ -120,14 +128,12 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             # Validate input file
             if not input_file.exists():
                 raise ConversionPipelineError(
-                    f"Input file not found: {input_file}",
-                    "initialization"
+                    f"Input file not found: {input_file}", "initialization"
                 )
 
             if not input_file.is_file():
                 raise ConversionPipelineError(
-                    f"Input path is not a file: {input_file}",
-                    "initialization"
+                    f"Input path is not a file: {input_file}", "initialization"
                 )
 
             # Ensure output directory exists
@@ -140,7 +146,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
                 input_file=input_file,
                 output_dir=output_dir,
                 options=options.model_dump() if options else {},
-                status=ConversionStatus.PENDING
+                status=ConversionStatus.PENDING,
             )
 
             # Initialize pipeline stages
@@ -156,9 +162,8 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
         except Exception as exc:
             logger.exception(f"Failed to create conversion job: {exc}")
             raise ConversionPipelineError(
-                f"Failed to create conversion job: {exc}",
-                "initialization"
-            )
+                f"Failed to create conversion job: {exc}", "initialization"
+            ) from exc
 
     def execute_pipeline(self, job: ConversionJob) -> ConversionResult:
         """
@@ -197,7 +202,9 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             job.current_stage = ConversionStage.COMPLETED
 
             if job.started_at:
-                job.total_duration_seconds = (job.completed_at - job.started_at).total_seconds()
+                job.total_duration_seconds = (
+                    job.completed_at - job.started_at
+                ).total_seconds()
 
             logger.info(f"Pipeline execution completed for job: {job.job_id}")
 
@@ -209,9 +216,8 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             job.completed_at = datetime.utcnow()
             job.error_message = str(exc)
             raise ConversionPipelineError(
-                f"Pipeline execution failed: {exc}",
-                job.current_stage.value
-            )
+                f"Pipeline execution failed: {exc}", job.current_stage.value
+            ) from exc
 
     def get_job_progress(self, job_id: str) -> ConversionProgress | None:
         """
@@ -230,8 +236,12 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
         # Calculate overall progress
         total_stages = len(job.stages)
-        completed_stages = sum(1 for stage in job.stages if stage.status == ConversionStatus.COMPLETED)
-        progress_percentage = (completed_stages / total_stages * 100) if total_stages > 0 else 0.0
+        completed_stages = sum(
+            1 for stage in job.stages if stage.status == ConversionStatus.COMPLETED
+        )
+        progress_percentage = (
+            (completed_stages / total_stages * 100) if total_stages > 0 else 0.0
+        )
 
         # Calculate elapsed time
         elapsed_seconds = None
@@ -243,13 +253,15 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             status=job.status,
             current_stage=job.current_stage,
             progress_percentage=progress_percentage,
-            current_stage_progress=job.stages[-1].progress_percentage if job.stages else 0.0,
+            current_stage_progress=job.stages[-1].progress_percentage
+            if job.stages
+            else 0.0,
             stages_completed=completed_stages,
             total_stages=total_stages,
             elapsed_seconds=elapsed_seconds,
             message=self._get_stage_message(job),
             warnings=self._collect_warnings(job),
-            updated_at=datetime.utcnow()
+            updated_at=datetime.utcnow(),
         )
 
     def cancel_job(self, job_id: str) -> bool:
@@ -267,7 +279,11 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             if not job:
                 return False
 
-            if job.status in [ConversionStatus.COMPLETED, ConversionStatus.FAILED, ConversionStatus.CANCELLED]:
+            if job.status in [
+                ConversionStatus.COMPLETED,
+                ConversionStatus.FAILED,
+                ConversionStatus.CANCELLED,
+            ]:
                 return False
 
             job.status = ConversionStatus.CANCELLED
@@ -314,29 +330,30 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             PipelineStage(
                 name="Tectonic Compilation",
                 status=ConversionStatus.PENDING,
-                metadata={"service": "tectonic"}
+                metadata={"service": "tectonic"},
             ),
             PipelineStage(
                 name="LaTeXML Conversion",
                 status=ConversionStatus.PENDING,
-                metadata={"service": "latexml"}
+                metadata={"service": "latexml"},
             ),
             PipelineStage(
                 name="HTML Post-Processing",
                 status=ConversionStatus.PENDING,
-                metadata={"service": "html_post"}
+                metadata={"service": "html_post"},
             ),
             PipelineStage(
                 name="Output Validation",
                 status=ConversionStatus.PENDING,
-                metadata={"service": "validation"}
-            )
+                metadata={"service": "validation"},
+            ),
         ]
 
         job.stages = stages
 
     def _execute_tectonic_stage(self, job: ConversionJob) -> None:
-        """Execute Tectonic compilation stage with enhanced file discovery and package management."""
+        """Execute Tectonic compilation stage with enhanced file discovery
+        and package management."""
         stage = job.stages[0]
         stage.status = ConversionStatus.RUNNING
         stage.started_at = datetime.utcnow()
@@ -347,32 +364,36 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
             # Step 1: Discover and prepare all project files
             logger.info("Discovering project files...")
-            
+
             # Check if input file is a ZIP file or already extracted
-            if job.input_file.suffix.lower() == '.zip':
+            if job.input_file.suffix.lower() == ".zip":
                 # Input is a ZIP file, extract it
                 project_structure = self.file_discovery.extract_project_files(
                     job.input_file, job.output_dir
                 )
             else:
                 # Input is already extracted, create a minimal project structure
-                logger.info("Input file is already extracted, creating project structure...")
+                logger.info(
+                    "Input file is already extracted, creating project structure..."
+                )
                 project_structure = ProjectStructure(
                     main_tex_file=job.input_file,
                     all_tex_files=[job.input_file],
                     supporting_files={},
                     dependencies=LatexDependencies(),
                     project_dir=job.input_file.parent,
-                    extracted_files=[job.input_file]
+                    extracted_files=[job.input_file],
                 )
-            
+
             # Store project structure in job metadata
             job.metadata["project_structure"] = {
                 "main_tex_file": str(project_structure.main_tex_file),
-                "project_dir": str(project_structure.project_dir),  # Store actual project directory
+                "project_dir": str(
+                    project_structure.project_dir
+                ),  # Store actual project directory
                 "files_discovered": len(project_structure.extracted_files),
                 "custom_classes": project_structure.dependencies.custom_classes,
-                "packages_required": len(project_structure.dependencies.packages)
+                "packages_required": len(project_structure.dependencies.packages),
             }
 
             # Step 2: Detect required packages
@@ -380,26 +401,46 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             required_packages = self.package_manager.detect_required_packages(
                 project_structure.main_tex_file
             )
-            
+
             # Step 3: Check and install missing packages
             if required_packages:
-                logger.info(f"Checking availability of {len(required_packages)} packages...")
+                logger.info(
+                    f"Checking availability of {len(required_packages)} packages..."
+                )
                 missing_packages = []
-                availability = self.package_manager.check_package_availability(required_packages)
-                
+                availability = self.package_manager.check_package_availability(
+                    required_packages
+                )
+
                 for package, available in availability.items():
                     if not available:
                         missing_packages.append(package)
-                
+
                 if missing_packages:
-                    logger.info(f"Attempting to install {len(missing_packages)} missing packages: {missing_packages}")
-                    install_result = self.package_manager.install_missing_packages(missing_packages)
-                    
+                    logger.info(
+                        f"Attempting to install {len(missing_packages)} "
+                        f"missing packages: {missing_packages}"
+                    )
+                    install_result = self.package_manager.install_missing_packages(
+                        missing_packages
+                    )
+
                     if install_result.installed_packages:
-                        logger.info(f"Successfully installed {len(install_result.installed_packages)} packages")
-                    
+                        logger.info(
+                            f"Successfully installed "
+                            f"{len(install_result.installed_packages)} packages"
+                        )
+
                     if install_result.failed_packages:
-                        logger.debug(f"Could not install {len(install_result.failed_packages)} packages: {install_result.failed_packages} (may not be critical)")
+                        failed_count = len(install_result.failed_packages)
+                        logger.debug(
+                            failed_count = len(install_result.failed_packages)
+                            logger.debug(
+                                f"Could not install {failed_count} packages: "
+                                f"{install_result.failed_packages} "
+                                f"(may not be critical)"
+                            )
+                        )
                         # Continue anyway - some packages might not be critical
 
             # Step 4: Compile with Tectonic
@@ -407,13 +448,15 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             result = self.tectonic_service.compile_latex(
                 input_file=project_structure.main_tex_file,
                 output_dir=job.output_dir / "tectonic",
-                options=job.options.get("tectonic_options", {})
+                options=job.options.get("tectonic_options", {}),
             )
 
             # Update stage
             stage.status = ConversionStatus.COMPLETED
             stage.completed_at = datetime.utcnow()
-            stage.duration_seconds = (stage.completed_at - stage.started_at).total_seconds()
+            stage.duration_seconds = (
+                stage.completed_at - stage.started_at
+            ).total_seconds()
             stage.progress_percentage = 100.0
             stage.metadata.update(result)
 
@@ -425,17 +468,19 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             # Log detailed error but continue with LaTeXML-only conversion
             logger.warning(f"Tectonic compilation failed: {exc}")
             logger.info("Falling back to LaTeXML-only conversion")
-            
+
             stage.status = ConversionStatus.SKIPPED
             stage.completed_at = datetime.utcnow()
-            stage.duration_seconds = (stage.completed_at - stage.started_at).total_seconds()
+            stage.duration_seconds = (
+                stage.completed_at - stage.started_at
+            ).total_seconds()
             stage.metadata["fallback_reason"] = str(exc)
             stage.metadata["fallback_used"] = True
-            
+
             # Update job metadata for fallback
             job.metadata["tectonic_failed"] = True
             job.metadata["fallback_reason"] = str(exc)
-            
+
             # Don't raise - allow pipeline to continue with LaTeXML-only
             logger.info("Continuing with LaTeXML-only conversion")
 
@@ -455,50 +500,61 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
                 # Use already discovered project structure
                 main_tex_path = job.metadata["project_structure"]["main_tex_file"]
                 tex_file = Path(main_tex_path)
-                # Use stored project_dir if available, otherwise fall back to tex_file parent
+                # Use stored project_dir if available,
+                # otherwise fall back to tex_file parent
                 if "project_dir" in job.metadata["project_structure"]:
                     project_dir = Path(job.metadata["project_structure"]["project_dir"])
                 else:
-                    # Fallback for old metadata format: use the directory containing the main tex file
+                    # Fallback for old metadata format: use the directory
+                    # containing the main tex file
                     project_dir = tex_file.parent
-                    logger.warning(f"project_dir not in metadata, using tex_file parent: {project_dir}")
+                    logger.warning(
+                        f"project_dir not in metadata, using tex_file "
+                        f"parent: {project_dir}"
+                    )
             else:
                 # Fallback: discover project structure now
                 logger.info("Project structure not found, discovering now...")
                 # Check if input is a ZIP file or already extracted
-                if job.input_file.suffix.lower() == '.zip':
+                if job.input_file.suffix.lower() == ".zip":
                     project_structure = self.file_discovery.extract_project_files(
                         job.input_file, job.output_dir
                     )
                 else:
-                    # Input is already extracted, use its parent directory as project_dir
+                    # Input is already extracted, use its parent directory
+                    # as project_dir
                     project_structure = ProjectStructure(
                         main_tex_file=job.input_file,
                         all_tex_files=[job.input_file],
                         supporting_files={},
                         dependencies=LatexDependencies(),
                         project_dir=job.input_file.parent,
-                        extracted_files=[job.input_file]
+                        extracted_files=[job.input_file],
                     )
                 tex_file = project_structure.main_tex_file
                 project_dir = project_structure.project_dir
 
             # Convert with LaTeXML
             from app.configs.latexml import LaTeXMLConversionOptions
-            latexml_options = LaTeXMLConversionOptions(**job.options.get("latexml_options", {}))
-            
+
+            latexml_options = LaTeXMLConversionOptions(
+                **job.options.get("latexml_options", {})
+            )
+
             # Pass project directory for custom classes and styles
             result = self.latexml_service.convert_tex_to_html(
                 input_file=tex_file,
                 output_dir=job.output_dir / "latexml",
                 options=latexml_options,
-                project_dir=project_dir
+                project_dir=project_dir,
             )
 
             # Update stage
             stage.status = ConversionStatus.COMPLETED
             stage.completed_at = datetime.utcnow()
-            stage.duration_seconds = (stage.completed_at - stage.started_at).total_seconds()
+            stage.duration_seconds = (
+                stage.completed_at - stage.started_at
+            ).total_seconds()
             stage.progress_percentage = 100.0
             stage.metadata.update(result)
 
@@ -511,9 +567,8 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             stage.error_message = str(exc)
             stage.completed_at = datetime.utcnow()
             raise ConversionPipelineError(
-                f"LaTeXML conversion failed: {exc}",
-                "latexml_conversion"
-            )
+                f"LaTeXML conversion failed: {exc}", "latexml_conversion"
+            ) from exc
 
     def _execute_post_processing_stage(self, job: ConversionJob) -> None:
         """Execute HTML post-processing stage."""
@@ -531,8 +586,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
             if not html_files:
                 raise ConversionPipelineError(
-                    "No HTML files found in LaTeXML output",
-                    "post_processing"
+                    "No HTML files found in LaTeXML output", "post_processing"
                 )
 
             html_file = html_files[0]  # Use the first HTML file
@@ -541,7 +595,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             result = self.html_processor.process_html(
                 html_file=html_file,
                 output_file=job.output_dir / "final.html",
-                options=job.options.get("post_processing_options", {})
+                options=job.options.get("post_processing_options", {}),
             )
 
             # Copy figures and assets from project directory to output
@@ -550,7 +604,9 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             # Update stage
             stage.status = ConversionStatus.COMPLETED
             stage.completed_at = datetime.utcnow()
-            stage.duration_seconds = (stage.completed_at - stage.started_at).total_seconds()
+            stage.duration_seconds = (
+                stage.completed_at - stage.started_at
+            ).total_seconds()
             stage.progress_percentage = 100.0
             stage.metadata.update(result)
 
@@ -563,9 +619,8 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             stage.error_message = str(exc)
             stage.completed_at = datetime.utcnow()
             raise ConversionPipelineError(
-                f"HTML post-processing failed: {exc}",
-                "post_processing"
-            )
+                f"HTML post-processing failed: {exc}", "post_processing"
+            ) from exc
 
     def _execute_validation_stage(self, job: ConversionJob) -> None:
         """Execute output validation stage."""
@@ -581,21 +636,21 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             output_file = job.output_dir / "final.html"
             if not output_file.exists():
                 raise ConversionPipelineError(
-                    "Final HTML output file not found",
-                    "validation"
+                    "Final HTML output file not found", "validation"
                 )
 
             # Basic validation checks
             file_info = get_file_info(output_file)
             if file_info["size"] == 0:
                 raise ConversionPipelineError(
-                    "Final HTML output file is empty",
-                    "validation"
+                    "Final HTML output file is empty", "validation"
                 )
 
             # Update job with output files
             job.output_files = [output_file]
-            job.assets = list(job.output_dir.glob("*.svg")) + list(job.output_dir.glob("*.png"))
+            job.assets = list(job.output_dir.glob("*.svg")) + list(
+                job.output_dir.glob("*.png")
+            )
 
             # Calculate quality score (simplified)
             job.quality_score = self._calculate_quality_score(job)
@@ -603,7 +658,9 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             # Update stage
             stage.status = ConversionStatus.COMPLETED
             stage.completed_at = datetime.utcnow()
-            stage.duration_seconds = (stage.completed_at - stage.started_at).total_seconds()
+            stage.duration_seconds = (
+                stage.completed_at - stage.started_at
+            ).total_seconds()
             stage.progress_percentage = 100.0
 
             job.current_stage = ConversionStage.COMPLETED
@@ -615,9 +672,8 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             stage.error_message = str(exc)
             stage.completed_at = datetime.utcnow()
             raise ConversionPipelineError(
-                f"Output validation failed: {exc}",
-                "validation"
-            )
+                f"Output validation failed: {exc}", "validation"
+            ) from exc
 
     def _copy_project_assets(self, job: ConversionJob) -> None:
         """Copy figures, images, and CSS from project directory to output."""
@@ -625,11 +681,18 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
         try:
             # Get project directory from metadata
-            if "project_structure" in job.metadata and "project_dir" in job.metadata["project_structure"]:
+            if (
+                "project_structure" in job.metadata
+                and "project_dir" in job.metadata["project_structure"]
+            ):
                 project_dir = Path(job.metadata["project_structure"]["project_dir"])
             else:
                 # Fallback: use input file parent
-                project_dir = job.input_file.parent if job.input_file.is_file() else job.input_file
+                project_dir = (
+                    job.input_file.parent
+                    if job.input_file.is_file()
+                    else job.input_file
+                )
 
             if not project_dir.exists():
                 logger.warning(f"Project directory not found: {project_dir}")
@@ -637,6 +700,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
             # Get asset patterns from config
             from app.config import settings
+
             asset_patterns = settings.ASSET_PATTERNS
             assets_copied = 0
 
@@ -644,10 +708,14 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             for pattern in asset_patterns:
                 for asset_file in project_dir.rglob(pattern):
                     # Skip hidden directories and __MACOSX
-                    if any(part.startswith('.') or part == '__MACOSX' for part in asset_file.parts):
+                    if any(
+                        part.startswith(".") or part == "__MACOSX"
+                        for part in asset_file.parts
+                    ):
                         continue
 
-                    # Handle filename collisions by preserving relative path from project root
+                    # Handle filename collisions by preserving relative path
+                    # from project root
                     dest_file = job.output_dir / asset_file.name
                     if dest_file.exists():
                         # If collision, preserve subdirectory structure
@@ -665,7 +733,13 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
                     shutil.copy2(asset_file, dest_file)
                     assets_copied += 1
-                    logger.debug(f"Copied asset: {asset_file.name} -> {dest_file.relative_to(job.output_dir)}")
+                    logger.debug(
+                        relative_path = dest_file.relative_to(job.output_dir)
+                        logger.debug(
+                            f"Copied asset: {asset_file.name} -> "
+                            f"{relative_path}"
+                        )
+                    )
 
             # Copy CSS files from latexml output to root
             latexml_dir = job.output_dir / "latexml"
@@ -692,7 +766,8 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             output_file = job.output_files[0]
             file_info = get_file_info(output_file)
 
-            # Adjust score based on file size (larger files might indicate better conversion)
+            # Adjust score based on file size
+            # (larger files might indicate better conversion)
             if file_info["size"] > 10000:  # 10KB
                 score += 5.0
             elif file_info["size"] < 1000:  # 1KB
@@ -716,12 +791,16 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             quality_score=job.quality_score,
             quality_metrics={"overall_score": job.quality_score},
             total_duration_seconds=job.total_duration_seconds,
-            stages_completed=[stage.name for stage in job.stages if stage.status == ConversionStatus.COMPLETED],
+            stages_completed=[
+                stage.name
+                for stage in job.stages
+                if stage.status == ConversionStatus.COMPLETED
+            ],
             warnings=self._collect_warnings(job),
             errors=[stage.error_message for stage in job.stages if stage.error_message],
             created_at=job.created_at,
             completed_at=job.completed_at or datetime.utcnow(),
-            metadata=job.metadata
+            metadata=job.metadata,
         )
 
     def _get_stage_message(self, job: ConversionJob) -> str:

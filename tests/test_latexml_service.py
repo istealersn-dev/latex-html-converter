@@ -33,9 +33,7 @@ class TestLaTeXMLService:
     def test_service_initialization_with_custom_settings(self):
         """Test service initialization with custom settings."""
         custom_settings = LaTeXMLSettings(
-            latexml_path="/custom/path/latexml",
-            output_format="xml",
-            strict_mode=True
+            latexml_path="/custom/path/latexml", output_format="xml", strict_mode=True
         )
         service = LaTeXMLService(settings=custom_settings)
         assert service.settings == custom_settings
@@ -43,7 +41,7 @@ class TestLaTeXMLService:
         assert service.settings.output_format == "xml"
         assert service.settings.strict_mode is True
 
-    @patch('app.services.latexml.run_command_safely')
+    @patch("app.services.latexml.run_command_safely")
     def test_verify_latexml_installation_success(self, mock_run_command):
         """Test successful LaTeXML installation verification."""
         mock_result = Mock()
@@ -54,7 +52,7 @@ class TestLaTeXMLService:
         # Should not raise any exception
         assert service is not None
 
-    @patch('app.services.latexml.run_command_safely')
+    @patch("app.services.latexml.run_command_safely")
     def test_verify_latexml_installation_failure(self, mock_run_command):
         """Test LaTeXML installation verification failure."""
         mock_result = Mock()
@@ -217,7 +215,9 @@ class TestLaTeXMLService:
             stdout = "Conversion successful"
             stderr = ""
 
-            result = service._parse_conversion_result(input_path, output_path, stdout, stderr)
+            result = service._parse_conversion_result(
+                input_path, output_path, stdout, stderr, service.settings
+            )
 
             assert result["success"] is True
             assert result["input_file"] == str(input_path)
@@ -275,7 +275,7 @@ class TestLaTeXMLService:
         assert "tex" in formats
         assert "box" in formats
 
-    @patch('app.services.latexml.run_command_safely')
+    @patch("app.services.latexml.run_command_safely")
     def test_get_version_info_success(self, mock_run_command):
         """Test getting version info successfully."""
         mock_result = Mock()
@@ -289,7 +289,7 @@ class TestLaTeXMLService:
         assert version_info["version"] == "0.8.8"
         assert version_info["executable"] == service.settings.latexml_path
 
-    @patch('app.services.latexml.run_command_safely')
+    @patch("app.services.latexml.run_command_safely")
     def test_get_version_info_failure(self, mock_run_command):
         """Test getting version info when command fails."""
         mock_run_command.side_effect = Exception("Command failed")
@@ -300,7 +300,7 @@ class TestLaTeXMLService:
         assert version_info["version"] == "unknown"
         assert version_info["executable"] == service.settings.latexml_path
 
-    @patch('app.services.latexml.run_command_safely')
+    @patch("app.services.latexml.run_command_safely")
     def test_convert_tex_to_html_success(self, mock_run_command):
         """Test successful TeX to HTML conversion."""
         # Mock successful command execution
@@ -315,24 +315,31 @@ class TestLaTeXMLService:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             input_file = temp_path / "test.tex"
-            input_file.write_text("\\documentclass{article}\\begin{document}Hello\\end{document}")
+            input_file.write_text(
+                "\\documentclass{article}\\begin{document}Hello\\end{document}"
+            )
 
             output_dir = temp_path / "output"
             output_dir.mkdir()
 
             # Mock the output file creation
-            with patch('pathlib.Path.exists', return_value=True):
-                with patch('app.services.latexml.get_file_info', return_value={'size': 1024}):
-                    result = service.convert_tex_to_html(input_file, output_dir)
+            with (
+                patch("pathlib.Path.exists", return_value=True),
+                patch(
+                    "app.services.latexml.get_file_info", return_value={"size": 1024}
+                ),
+            ):
+                result = service.convert_tex_to_html(input_file, output_dir)
 
             assert result["success"] is True
             assert result["input_file"] == str(input_file)
             assert result["format"] == "html"
 
-    @patch('app.services.latexml.run_command_safely')
+    @patch("app.services.latexml.run_command_safely")
     def test_convert_tex_to_html_timeout(self, mock_run_command):
         """Test TeX to HTML conversion timeout."""
         import subprocess
+
         mock_run_command.side_effect = subprocess.TimeoutExpired("latexml", 300)
 
         service = LaTeXMLService()
@@ -340,7 +347,9 @@ class TestLaTeXMLService:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             input_file = temp_path / "test.tex"
-            input_file.write_text("\\documentclass{article}\\begin{document}Hello\\end{document}")
+            input_file.write_text(
+                "\\documentclass{article}\\begin{document}Hello\\end{document}"
+            )
 
             output_dir = temp_path / "output"
             output_dir.mkdir()
@@ -350,7 +359,7 @@ class TestLaTeXMLService:
 
             assert "timed out" in str(exc_info.value)
 
-    @patch('app.services.latexml.run_command_safely')
+    @patch("app.services.latexml.run_command_safely")
     def test_convert_tex_to_html_conversion_error(self, mock_run_command):
         """Test TeX to HTML conversion with conversion error."""
         mock_result = Mock()
@@ -364,7 +373,9 @@ class TestLaTeXMLService:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             input_file = temp_path / "test.tex"
-            input_file.write_text("\\documentclass{article}\\begin{document}Hello\\end{document}")
+            input_file.write_text(
+                "\\documentclass{article}\\begin{document}Hello\\end{document}"
+            )
 
             output_dir = temp_path / "output"
             output_dir.mkdir()
@@ -376,13 +387,11 @@ class TestLaTeXMLService:
 
     def test_convert_tex_to_html_with_options(self):
         """Test conversion with custom options."""
-        service = LaTeXMLService()
-
         options = LaTeXMLConversionOptions(
             output_format="xml",
             strict_mode=True,
             verbose=True,
-            preload_modules=["amsmath", "graphicx"]
+            preload_modules=["amsmath", "graphicx"],
         )
 
         # Test that options are properly converted to settings
@@ -416,7 +425,7 @@ class TestLaTeXMLConversionOptions:
             include_mathml=False,
             strict_mode=True,
             verbose=True,
-            preload_modules=["graphicx", "amsmath"]
+            preload_modules=["graphicx", "amsmath"],
         )
 
         assert options.output_format == "xml"
@@ -444,7 +453,7 @@ class TestLaTeXMLConversionOptions:
             output_format="xml",
             strict_mode=True,
             verbose=True,
-            preload_modules=["graphicx"]
+            preload_modules=["graphicx"],
         )
 
         settings = options.to_latexml_settings()
@@ -475,7 +484,7 @@ class TestLaTeXMLSettings:
             latexml_path="/custom/latexml",
             output_format="xml",
             strict_mode=True,
-            conversion_timeout=600
+            conversion_timeout=600,
         )
 
         assert settings.latexml_path == "/custom/latexml"
@@ -554,7 +563,7 @@ class TestLaTeXMLSettings:
             output_format="html",
             strict_mode=True,
             verbose_output=True,
-            preload_modules=["amsmath", "graphicx"]
+            preload_modules=["amsmath", "graphicx"],
         )
 
         input_file = Path("test.tex")
@@ -575,9 +584,7 @@ class TestLaTeXMLSettings:
     def test_get_environment_vars(self):
         """Test environment variables generation."""
         settings = LaTeXMLSettings(
-            strict_mode=True,
-            verbose_output=True,
-            temp_dir=Path("/tmp")
+            strict_mode=True, verbose_output=True, temp_dir=Path("/tmp")
         )
 
         env_vars = settings.get_environment_vars()

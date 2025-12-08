@@ -15,7 +15,12 @@ class LaTeXMLSettings(BaseSettings):
     """LaTeXML configuration settings."""
 
     # LaTeXML executable path
-    latexml_path: str = Field(default="/usr/bin/latexmlc", description="Path to LaTeXML executable (Docker default, override with env var)")
+    latexml_path: str = Field(
+        default="/usr/bin/latexmlc",
+        description=(
+            "Path to LaTeXML executable (Docker default, " "override with env var)"
+        ),
+    )
 
     # Output format settings
     output_format: str = Field(default="html", description="Output format (html, xml)")
@@ -26,51 +31,70 @@ class LaTeXMLSettings(BaseSettings):
     # Processing options
     strict_mode: bool = Field(default=False, description="Enable strict error handling")
     verbose_output: bool = Field(default=False, description="Enable verbose output")
-    include_comments: bool = Field(default=False, description="Include comments in output")
-    parallel_processing: bool = Field(default=True, description="Enable parallel processing")
-    cache_bindings: bool = Field(default=True, description="Cache LaTeXML bindings for faster processing")
+    include_comments: bool = Field(
+        default=False, description="Include comments in output"
+    )
+    parallel_processing: bool = Field(
+        default=True, description="Enable parallel processing"
+    )
+    cache_bindings: bool = Field(
+        default=True, description="Cache LaTeXML bindings for faster processing"
+    )
 
     # Path settings
-    temp_dir: Path | None = Field(default=None, description="Temporary directory for processing")
-    output_dir: Path | None = Field(default=None, description="Output directory for results")
+    temp_dir: Path | None = Field(
+        default=None, description="Temporary directory for processing"
+    )
+    output_dir: Path | None = Field(
+        default=None, description="Output directory for results"
+    )
 
     # Timeout settings
-    conversion_timeout: int = Field(default=300, description="Conversion timeout in seconds")
+    conversion_timeout: int = Field(
+        default=300, description="Conversion timeout in seconds"
+    )
 
     # Security settings
     allowed_extensions: list[str] = Field(
-        default=[".tex", ".latex", ".ltx"],
-        description="Allowed input file extensions"
+        default=[".tex", ".latex", ".ltx"], description="Allowed input file extensions"
     )
     max_file_size: int = Field(
         default=50 * 1024 * 1024,  # 50MB
-        description="Maximum input file size in bytes"
+        description="Maximum input file size in bytes",
     )
 
     # LaTeXML-specific options
     preload_modules: list[str] = Field(
         default=["amsmath", "amssymb", "graphicx", "overpic"],
-        description="LaTeXML modules to preload"
+        description="LaTeXML modules to preload",
     )
     preamble_file: Path | None = Field(
-        default=None,
-        description="Optional preamble file to prepend"
+        default=None, description="Optional preamble file to prepend"
     )
     postamble_file: Path | None = Field(
-        default=None,
-        description="Optional postamble file to append"
+        default=None, description="Optional postamble file to append"
     )
-    
+
     # Package management
-    auto_install_packages: bool = Field(default=True, description="Automatically install missing packages")
-    package_install_timeout: int = Field(default=300, description="Package installation timeout in seconds")
-    
+    auto_install_packages: bool = Field(
+        default=True, description="Automatically install missing packages"
+    )
+    package_install_timeout: int = Field(
+        default=300, description="Package installation timeout in seconds"
+    )
+
     # Fallback behavior
-    enable_tectonic_fallback: bool = Field(default=True, description="Enable fallback to LaTeXML-only when Tectonic fails")
-    continue_on_tectonic_failure: bool = Field(default=True, description="Continue conversion when Tectonic fails")
-    
+    enable_tectonic_fallback: bool = Field(
+        default=True, description="Enable fallback to LaTeXML-only when Tectonic fails"
+    )
+    continue_on_tectonic_failure: bool = Field(
+        default=True, description="Continue conversion when Tectonic fails"
+    )
+
     # Custom paths
-    custom_class_paths: list[str] = Field(default_factory=list, description="Custom paths for document classes")
+    custom_class_paths: list[str] = Field(
+        default_factory=list, description="Custom paths for document classes"
+    )
 
     class Config:
         env_prefix = "LATEXML_"
@@ -112,16 +136,16 @@ class LaTeXMLSettings(BaseSettings):
         if not v:
             raise ValueError("At least one extension must be allowed")
         # Ensure extensions start with dot
-        return [ext if ext.startswith('.') else f'.{ext}' for ext in v]
+        return [ext if ext.startswith(".") else f".{ext}" for ext in v]
 
     def get_latexml_command(self, input_file: Path, output_file: Path) -> list[str]:
         """
         Generate LaTeXML command with current settings.
-        
+
         Args:
             input_file: Path to input TeX file
             output_file: Path to output file
-            
+
         Returns:
             List of command arguments
         """
@@ -161,7 +185,9 @@ class LaTeXMLSettings(BaseSettings):
             cmd.append("--cache")
 
         # Disable unnecessary features for faster processing
-        cmd.append("--nodefaultresources")  # Don't load default CSS/JS, we'll add our own
+        cmd.append(
+            "--nodefaultresources"
+        )  # Don't load default CSS/JS, we'll add our own
         cmd.append("--timestamp=0")  # Disable timestamp generation
 
         # Preload modules
@@ -191,7 +217,7 @@ class LaTeXMLSettings(BaseSettings):
     def get_environment_vars(self) -> dict[str, str]:
         """
         Get environment variables for LaTeXML execution.
-        
+
         Returns:
             Dictionary of environment variables
         """
@@ -217,15 +243,13 @@ class LaTeXMLConversionOptions(BaseModel):
     verbose: bool = Field(default=False, description="Verbose output")
     preload_modules: list[str] = Field(
         default_factory=lambda: ["amsmath", "amssymb", "graphicx", "overpic"],
-        description="Modules to preload"
+        description="Modules to preload",
     )
     custom_preamble: str | None = Field(
-        default=None,
-        description="Custom preamble content"
+        default=None, description="Custom preamble content"
     )
     custom_postamble: str | None = Field(
-        default=None,
-        description="Custom postamble content"
+        default=None, description="Custom postamble content"
     )
 
     @field_validator("output_format")

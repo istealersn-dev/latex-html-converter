@@ -34,12 +34,12 @@ async def health_check() -> JSONResponse:
                 "service": settings.APP_NAME,
                 "version": settings.VERSION,
                 "environment": settings.ENVIRONMENT,
-                "timestamp": datetime.utcnow().isoformat()
-            }
+                "timestamp": datetime.utcnow().isoformat(),
+            },
         )
     except Exception as e:
         logger.error(f"Health check failed: {e}")
-        raise HTTPException(status_code=503, detail="Service unhealthy")
+        raise HTTPException(status_code=503, detail="Service unhealthy") from e
 
 
 @router.get("/health")
@@ -56,14 +56,14 @@ async def detailed_health_check() -> JSONResponse:
             "platform": platform.system(),
             "platform_version": platform.version(),
             "python_version": platform.python_version(),
-            "architecture": platform.architecture()[0]
+            "architecture": platform.architecture()[0],
         }
 
         # Get system metrics
         system_metrics = {
             "cpu_percent": psutil.cpu_percent(interval=1),
             "memory_percent": psutil.virtual_memory().percent,
-            "disk_percent": psutil.disk_usage('/').percent
+            "disk_percent": psutil.disk_usage("/").percent,
         }
 
         # Check external dependencies
@@ -79,12 +79,12 @@ async def detailed_health_check() -> JSONResponse:
                 "timestamp": datetime.utcnow().isoformat(),
                 "system": system_info,
                 "metrics": system_metrics,
-                "dependencies": dependencies_status
-            }
+                "dependencies": dependencies_status,
+            },
         )
     except Exception as e:
         logger.error(f"Detailed health check failed: {e}")
-        raise HTTPException(status_code=503, detail="Service unhealthy")
+        raise HTTPException(status_code=503, detail="Service unhealthy") from e
 
 
 async def check_dependencies() -> dict[str, bool]:
@@ -94,20 +94,18 @@ async def check_dependencies() -> dict[str, bool]:
     Returns:
         dict: Status of external dependencies
     """
-    dependencies = {
-        "tectonic": False,
-        "latexml": False,
-        "dvisvgm": False
-    }
+    dependencies = {"tectonic": False, "latexml": False, "dvisvgm": False}
 
     try:
         # Check Tectonic
         import subprocess
+
         result = subprocess.run(
             [settings.TECTONIC_PATH, "--version"],
             capture_output=True,
             text=True,
-            timeout=5, check=False
+            timeout=5,
+            check=False,
         )
         dependencies["tectonic"] = result.returncode == 0
     except Exception:
@@ -119,7 +117,8 @@ async def check_dependencies() -> dict[str, bool]:
             [settings.LATEXML_PATH, "--VERSION"],
             capture_output=True,
             text=True,
-            timeout=5, check=False
+            timeout=5,
+            check=False,
         )
         dependencies["latexml"] = result.returncode == 0
     except Exception:
@@ -131,7 +130,8 @@ async def check_dependencies() -> dict[str, bool]:
             [settings.DVISVGM_PATH, "--version"],
             capture_output=True,
             text=True,
-            timeout=5, check=False
+            timeout=5,
+            check=False,
         )
         dependencies["dvisvgm"] = result.returncode == 0
     except Exception:
@@ -162,8 +162,8 @@ async def readiness_check() -> JSONResponse:
                 content={
                     "status": "ready",
                     "service": settings.APP_NAME,
-                    "timestamp": datetime.utcnow().isoformat()
-                }
+                    "timestamp": datetime.utcnow().isoformat(),
+                },
             )
         return JSONResponse(
             status_code=503,
@@ -171,12 +171,11 @@ async def readiness_check() -> JSONResponse:
                 "status": "not_ready",
                 "service": settings.APP_NAME,
                 "missing_dependencies": [
-                    dep for dep, status in dependencies.items()
-                    if not status
+                    dep for dep, status in dependencies.items() if not status
                 ],
-                "timestamp": datetime.utcnow().isoformat()
-            }
+                "timestamp": datetime.utcnow().isoformat(),
+            },
         )
     except Exception as e:
         logger.error(f"Readiness check failed: {e}")
-        raise HTTPException(status_code=503, detail="Service not ready")
+        raise HTTPException(status_code=503, detail="Service not ready") from e
