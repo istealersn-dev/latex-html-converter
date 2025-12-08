@@ -190,9 +190,11 @@ class PackageManagerService:
 
         if not tlmgr_available and not apt_available:
             self.logger.debug(
-                "Package installation tools (tlmgr/apt) not available - skipping package installation"
+                "Package installation tools (tlmgr/apt) not available - "
+                "skipping package installation"
             )
-            # Return result indicating packages couldn't be installed (but this is expected)
+            # Return result indicating packages couldn't be installed
+            # (but this is expected)
             result = InstallResult(success=False)
             result.failed_packages = packages
             result.warnings.append(
@@ -222,10 +224,12 @@ class PackageManagerService:
                     else:
                         result.failed_packages.append(package)
                         result.errors.append(f"Failed to install {package}")
-                        # Only log as error if tools are available but installation failed
+                        # Only log as error if tools are available
+                        # but installation failed
                         if tlmgr_available or apt_available:
                             self.logger.debug(
-                                f"Could not install {package} (tools available but installation failed)"
+                                f"Could not install {package} "
+                                f"(tools available but installation failed)"
                             )
                         else:
                             self.logger.debug(
@@ -244,11 +248,13 @@ class PackageManagerService:
         if result.failed_packages:
             if tlmgr_available or apt_available:
                 self.logger.debug(
-                    f"Could not install {len(result.failed_packages)} packages: {result.failed_packages}"
+                    f"Could not install {len(result.failed_packages)} "
+                    f"packages: {result.failed_packages}"
                 )
             else:
                 self.logger.debug(
-                    f"Package installation skipped - tools not available ({len(result.failed_packages)} packages)"
+                    f"Package installation skipped - tools not available "
+                    f"({len(result.failed_packages)} packages)"
                 )
 
         return result

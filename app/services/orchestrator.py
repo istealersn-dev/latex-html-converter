@@ -123,7 +123,8 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
                 # Check for duplicate job ID
                 if requested_job_id in self._jobs:
                     raise OrchestrationError(
-                        f"Job ID {requested_job_id} already exists. Cannot create duplicate job."
+                        f"Job ID {requested_job_id} already exists. "
+                        f"Cannot create duplicate job."
                     )
 
                 # Create job
@@ -154,9 +155,7 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
                     self._jobs.pop(job_created_id, None)
 
                 logger.exception(f"Failed to start conversion: {exc}")
-                raise OrchestrationError(
-                    f"Failed to start conversion: {exc}"
-                ) from exc
+                raise OrchestrationError(f"Failed to start conversion: {exc}") from exc
 
     def get_job_status(self, job_id: str) -> ConversionStatus | None:
         """

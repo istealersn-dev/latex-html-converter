@@ -128,10 +128,9 @@ class LaTeXMLService:
         self._validate_input_file(input_file)
 
         # Apply options to settings
-        if options:
-            settings = options.to_latexml_settings()
-        else:
-            settings = self.settings
+        settings = (
+            options.to_latexml_settings() if options else self.settings
+        )
 
         # Ensure output directory exists
         try:
@@ -224,9 +223,7 @@ class LaTeXMLService:
                 return conversion_result
 
             except subprocess.TimeoutExpired:
-                raise LaTeXMLTimeoutError(
-                    settings.conversion_timeout
-                ) from None
+                raise LaTeXMLTimeoutError(settings.conversion_timeout) from None
             except LaTeXMLConversionError:
                 # Re-raise our custom errors
                 raise
@@ -268,8 +265,10 @@ class LaTeXMLService:
         try:
             file_info = get_file_info(input_file)
             if file_info["size"] > self.settings.max_file_size:
+                max_size = self.settings.max_file_size
                 raise LaTeXMLSecurityError(
-                    f"File too large: {file_info['size']} bytes (max: {self.settings.max_file_size})",
+                    f"File too large: {file_info['size']} bytes "
+                    f"(max: {max_size})",
                     "file_size_exceeded",
                 )
         except Exception as exc:
@@ -299,7 +298,6 @@ class LaTeXMLService:
             Dict with error information
         """
         error_lines = stderr.strip().split("\n") if stderr else []
-        output_lines = stdout.strip().split("\n") if stdout else []
 
         # Common LaTeXML error patterns
         if any("Fatal error" in line for line in error_lines):

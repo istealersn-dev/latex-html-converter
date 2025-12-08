@@ -83,9 +83,7 @@ class TectonicService:
                 f"Tectonic not found at: {self.tectonic_path}"
             ) from None
         except Exception as exc:
-            raise TectonicCompilationError(
-                f"Failed to verify Tectonic: {exc}"
-            ) from exc
+            raise TectonicCompilationError(f"Failed to verify Tectonic: {exc}") from exc
 
     def compile_latex(
         self, input_file: Path, output_dir: Path, options: dict[str, Any] | None = None
@@ -198,7 +196,8 @@ class TectonicService:
         # Security: Use untrusted mode to disable insecure features
         cmd.append("--untrusted")
 
-        # Note: Tectonic doesn't support --no-shell-escape, --no-interaction, or --halt-on-error
+        # Note: Tectonic doesn't support --no-shell-escape,
+        # --no-interaction, or --halt-on-error
         # The --untrusted flag provides the security we need
 
         # Output directory

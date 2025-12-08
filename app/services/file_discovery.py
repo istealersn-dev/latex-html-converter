@@ -214,7 +214,7 @@ class FileDiscoveryService:
                     return tex_file
 
         # Look for files with \documentclass
-        for tex_file in tex_files:
+        for _tex_file in tex_files:
             try:
                 # This is a simplified check - in real implementation we'd read the file
                 # For now, assume the largest .tex file is the main one

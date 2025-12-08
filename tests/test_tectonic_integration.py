@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from app.services.tectonic import TectonicCompilationError, TectonicService
+from app.services.tectonic import (
+    TectonicCompilationError,
+    TectonicSecurityError,
+    TectonicService,
+)
 
 
 class TestTectonicIntegration:
@@ -170,7 +174,7 @@ This document requires a package that doesn't exist.
             invalid_file = temp_path / "test.txt"
             invalid_file.write_text("Not a LaTeX file")
 
-            with pytest.raises(Exception):  # Should be TectonicSecurityError
+            with pytest.raises(TectonicSecurityError):
                 service.compile_latex(invalid_file, temp_path / "output")
 
             print("✅ Correctly rejected non-LaTeX file")
@@ -181,7 +185,7 @@ This document requires a package that doesn't exist.
                 r"\documentclass{article}\begin{document}Hello\end{document}"
             )
 
-            with pytest.raises(Exception):  # Should be TectonicSecurityError
+            with pytest.raises(TectonicSecurityError):
                 service.compile_latex(dangerous_file, temp_path / "output")
 
             print("✅ Correctly rejected dangerous filename")

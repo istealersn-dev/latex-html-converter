@@ -86,7 +86,8 @@ def test_asset_conversion_service():
 
         if result.get("success"):
             logger.success(
-                f"✅ Asset conversion successful: {result['successful_conversions']} assets converted"
+                f"✅ Asset conversion successful: "
+                f"{result['successful_conversions']} assets converted"
             )
             return True
         else:
@@ -167,7 +168,8 @@ def test_svg_optimization():
 
         if result.get("success"):
             logger.success(
-                f"✅ SVG optimization successful: {result['compression_ratio']:.2%} size reduction"
+                f"✅ SVG optimization successful: "
+                f"{result['compression_ratio']:.2%} size reduction"
             )
             return True
         else:
@@ -203,7 +205,8 @@ def test_asset_validation():
 
         if result.get("is_valid"):
             logger.success(
-                f"✅ SVG validation successful: Quality score {result['quality_score']:.2f}"
+                f"✅ SVG validation successful: Quality score "
+                f"{result['quality_score']:.2f}"
             )
             return True
         else:

@@ -352,7 +352,8 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
         job.stages = stages
 
     def _execute_tectonic_stage(self, job: ConversionJob) -> None:
-        """Execute Tectonic compilation stage with enhanced file discovery and package management."""
+        """Execute Tectonic compilation stage with enhanced file discovery
+        and package management."""
         stage = job.stages[0]
         stage.status = ConversionStatus.RUNNING
         stage.started_at = datetime.utcnow()
@@ -417,7 +418,8 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
                 if missing_packages:
                     logger.info(
-                        f"Attempting to install {len(missing_packages)} missing packages: {missing_packages}"
+                        f"Attempting to install {len(missing_packages)} "
+                        f"missing packages: {missing_packages}"
                     )
                     install_result = self.package_manager.install_missing_packages(
                         missing_packages
@@ -425,12 +427,19 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
                     if install_result.installed_packages:
                         logger.info(
-                            f"Successfully installed {len(install_result.installed_packages)} packages"
+                            f"Successfully installed "
+                            f"{len(install_result.installed_packages)} packages"
                         )
 
                     if install_result.failed_packages:
+                        failed_count = len(install_result.failed_packages)
                         logger.debug(
-                            f"Could not install {len(install_result.failed_packages)} packages: {install_result.failed_packages} (may not be critical)"
+                            failed_count = len(install_result.failed_packages)
+                            logger.debug(
+                                f"Could not install {failed_count} packages: "
+                                f"{install_result.failed_packages} "
+                                f"(may not be critical)"
+                            )
                         )
                         # Continue anyway - some packages might not be critical
 
@@ -491,14 +500,17 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
                 # Use already discovered project structure
                 main_tex_path = job.metadata["project_structure"]["main_tex_file"]
                 tex_file = Path(main_tex_path)
-                # Use stored project_dir if available, otherwise fall back to tex_file parent
+                # Use stored project_dir if available,
+                # otherwise fall back to tex_file parent
                 if "project_dir" in job.metadata["project_structure"]:
                     project_dir = Path(job.metadata["project_structure"]["project_dir"])
                 else:
-                    # Fallback for old metadata format: use the directory containing the main tex file
+                    # Fallback for old metadata format: use the directory
+                    # containing the main tex file
                     project_dir = tex_file.parent
                     logger.warning(
-                        f"project_dir not in metadata, using tex_file parent: {project_dir}"
+                        f"project_dir not in metadata, using tex_file "
+                        f"parent: {project_dir}"
                     )
             else:
                 # Fallback: discover project structure now
@@ -509,7 +521,8 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
                         job.input_file, job.output_dir
                     )
                 else:
-                    # Input is already extracted, use its parent directory as project_dir
+                    # Input is already extracted, use its parent directory
+                    # as project_dir
                     project_structure = ProjectStructure(
                         main_tex_file=job.input_file,
                         all_tex_files=[job.input_file],
@@ -701,7 +714,8 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
                     ):
                         continue
 
-                    # Handle filename collisions by preserving relative path from project root
+                    # Handle filename collisions by preserving relative path
+                    # from project root
                     dest_file = job.output_dir / asset_file.name
                     if dest_file.exists():
                         # If collision, preserve subdirectory structure
@@ -720,7 +734,11 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
                     shutil.copy2(asset_file, dest_file)
                     assets_copied += 1
                     logger.debug(
-                        f"Copied asset: {asset_file.name} -> {dest_file.relative_to(job.output_dir)}"
+                        relative_path = dest_file.relative_to(job.output_dir)
+                        logger.debug(
+                            f"Copied asset: {asset_file.name} -> "
+                            f"{relative_path}"
+                        )
                     )
 
             # Copy CSS files from latexml output to root
@@ -748,7 +766,8 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             output_file = job.output_files[0]
             file_info = get_file_info(output_file)
 
-            # Adjust score based on file size (larger files might indicate better conversion)
+            # Adjust score based on file size
+            # (larger files might indicate better conversion)
             if file_info["size"] > 10000:  # 10KB
                 score += 5.0
             elif file_info["size"] < 1000:  # 1KB

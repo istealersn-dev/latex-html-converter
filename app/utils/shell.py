@@ -159,16 +159,18 @@ def _validate_command_safety(cmd: list[str]) -> None:
 
     # Additional security checks for dangerous commands as separate arguments
     # Check if dangerous commands appear as standalone command arguments
-    # This prevents commands like: latexmlc /etc/passwd (where 'passwd' is in a path - allowed)
-    # vs: latexmlc passwd (where 'passwd' is a dangerous command argument - rejected)
+    # This prevents commands like: latexmlc /etc/passwd
+    # (where 'passwd' is in a path - allowed)
+    # vs: latexmlc passwd (where 'passwd' is a dangerous command
+    # argument - rejected)
     dangerous_commands = ["sudo", "su", "chmod", "chown", "passwd"]
     for i, cmd_part in enumerate(cmd):
         # Check arguments after the first one (executable path)
-        if i > 0:
-            # If argument exactly matches a dangerous command, reject it
-            # File paths would contain '/' or '.' indicating they're paths, not commands
-            if cmd_part in dangerous_commands:
-                # Allow if it's clearly a file path (contains path separators or file extension)
+        # If argument exactly matches a dangerous command, reject it
+        # File paths would contain '/' or '.' indicating they're paths, not commands
+        if i > 0 and cmd_part in dangerous_commands:
+                # Allow if it's clearly a file path
+                # (contains path separators or file extension)
                 is_file_path = (
                     "/" in cmd_part
                     or (cmd_part.startswith(".") and len(cmd_part) > 1)
@@ -180,7 +182,8 @@ def _validate_command_safety(cmd: list[str]) -> None:
                     )
 
     # Check for path traversal attempts - but allow legitimate LaTeX file paths
-    # Only block if trying to access actual system directories, not paths containing "etc"
+    # Only block if trying to access actual system directories,
+    # not paths containing "etc"
     dangerous_paths = [
         "/etc/passwd",
         "/etc/shadow",
@@ -230,7 +233,8 @@ def run_command_with_retry(
             last_exception = exc
             if attempt < max_retries:
                 logger.warning(
-                    f"Command failed (attempt {attempt + 1}/{max_retries + 1}), retrying in {retry_delay}s..."
+                    f"Command failed (attempt {attempt + 1}/"
+                    f"{max_retries + 1}), retrying in {retry_delay}s..."
                 )
                 import time
 

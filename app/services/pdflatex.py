@@ -1,7 +1,8 @@
 """
 PDFLaTeX compilation service.
 
-This module provides LaTeX compilation using pdflatex with a Tectonic-compatible interface.
+This module provides LaTeX compilation using pdflatex with a
+Tectonic-compatible interface.
 It adapts Tectonic-specific flags and options to work with traditional pdflatex.
 """
 
@@ -47,7 +48,8 @@ class PDFLaTeXService:
     """
     Service for LaTeX compilation using pdflatex with Tectonic-compatible interface.
 
-    This service adapts Tectonic-specific flags and options to work with traditional pdflatex.
+    This service adapts Tectonic-specific flags and options to work
+    with traditional pdflatex.
     """
 
     def __init__(self, pdflatex_path: str = "pdflatex"):
@@ -72,9 +74,7 @@ class PDFLaTeXService:
                 f"pdflatex not found at: {self.pdflatex_path}"
             ) from None
         except Exception as exc:
-            raise PDFLaTeXCompilationError(
-                f"Failed to verify pdflatex: {exc}"
-            ) from exc
+            raise PDFLaTeXCompilationError(f"Failed to verify pdflatex: {exc}") from exc
 
     def compile_latex(
         self, input_file: Path, output_dir: Path, options: dict[str, Any] | None = None
@@ -169,10 +169,12 @@ class PDFLaTeXService:
 
         # Add custom options if provided
         if options:
-            # Map engine options (pdflatex doesn't support engine switching like Tectonic)
+            # Map engine options (pdflatex doesn't support engine
+            # switching like Tectonic)
             if options.get("engine", "").lower() in ["xelatex", "lualatex"]:
                 logger.warning(
-                    f"Engine '{options.get('engine')}' not supported by pdflatex, using pdflatex"
+                    f"Engine '{options.get('engine')}' not supported by "
+                    f"pdflatex, using pdflatex"
                 )
 
             # Add custom arguments

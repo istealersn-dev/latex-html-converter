@@ -18,8 +18,7 @@ class LaTeXMLSettings(BaseSettings):
     latexml_path: str = Field(
         default="/usr/bin/latexmlc",
         description=(
-            "Path to LaTeXML executable (Docker default, "
-            "override with env var)"
+            "Path to LaTeXML executable (Docker default, " "override with env var)"
         ),
     )
 

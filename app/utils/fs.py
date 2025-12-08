@@ -365,7 +365,8 @@ def _validate_path_safety(path: Path, allow_relative: bool = False) -> None:
     if not allow_relative:
         try:
             cwd = Path.cwd().resolve()
-            # Check if path is within current working directory tree or standard work dirs
+            # Check if path is within current working directory tree
+            # or standard work dirs
             work_dirs = [cwd, Path("/app"), Path("/tmp"), Path("/home")]
             is_in_work_dir = any(
                 str(abs_path).startswith(str(work_dir)) for work_dir in work_dirs

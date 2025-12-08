@@ -444,7 +444,8 @@ class HTMLPostProcessor:
             return soup
 
     def _fix_latexml_artifacts(self, soup: BeautifulSoup) -> None:
-        """Fix artifacts from LaTeXML processing custom classes without proper bindings."""
+        """Fix artifacts from LaTeXML processing custom classes
+        without proper bindings."""
 
         # Fix 1: Remove '12pt', '0pt', '11pt' etc. from beginning of headings and titles
         # These come from \fontsize commands that LaTeXML doesn't process properly
@@ -466,8 +467,10 @@ class HTMLPostProcessor:
                                 f"Cleaned heading text: {text_node} -> {cleaned_text}"
                             )
 
-        # Fix 2: Unwrap excessive bold formatting (ltx_text ltx_font_bold wrapping entire paragraphs)
-        # LaTeXML sometimes wraps entire sections in bold when it should only be headings
+        # Fix 2: Unwrap excessive bold formatting
+        # (ltx_text ltx_font_bold wrapping entire paragraphs)
+        # LaTeXML sometimes wraps entire sections in bold
+        # when it should only be headings
         for p in soup.find_all("p"):
             # Find all bold spans that are direct children of the paragraph
             bold_spans = p.find_all(
@@ -488,7 +491,8 @@ class HTMLPostProcessor:
                         span.unwrap()
                     logger.debug("Unwrapped paragraph-level bold formatting")
 
-            # Strategy 2: Multiple bold spans covering most of paragraph (likely incorrect)
+            # Strategy 2: Multiple bold spans covering most of paragraph
+            # (likely incorrect)
             elif len(bold_spans) > 0:
                 # Calculate what percentage of paragraph is bold
                 total_text = p.get_text(strip=True)
@@ -506,8 +510,10 @@ class HTMLPostProcessor:
                             ]
                             if not span.get("class"):
                                 span.unwrap()
+                    percentage = len(bold_text) / len(total_text) * 100
                     logger.debug(
-                        f"Unwrapped excessive bold formatting covering {len(bold_text)/len(total_text)*100:.0f}% of paragraph"
+                        f"Unwrapped excessive bold formatting "
+                        f"covering {percentage:.0f}% of paragraph"
                     )
 
         # Fix 3: Remove LaTeXML error/warning messages from HTML
@@ -577,7 +583,8 @@ class HTMLPostProcessor:
         This method ensures citations are in the format "Author, (Year)"
         with the ENTIRE citation wrapped in a single link (not just the year).
 
-        Original structure: "Author, ( ) <a>Year</a>" or "Author, (Year)" with only year linked
+        Original structure: "Author, ( ) <a>Year</a>" or
+        "Author, (Year)" with only year linked
         Desired structure: "<a>Author, (Year)</a>" - entire citation linked
         """
         for cite in soup.find_all("cite", class_=re.compile(r"ltx_cite")):
@@ -616,11 +623,13 @@ class HTMLPostProcessor:
                     )  # Normalize whitespace
 
                     # Check if we have author before the year link
-                    # Pattern: "Author," or "Author et al.," possibly followed by "(" or "( )"
+                    # Pattern: "Author," or "Author et al.,"
+                    # possibly followed by "(" or "( )"
                     # Try multiple patterns to catch different text node structures
                     author_match = None
 
-                    # Pattern 1: "Author, ( )" or "Author, (" in before_text (handle whitespace variations)
+                    # Pattern 1: "Author, ( )" or "Author, (" in before_text
+                    # (handle whitespace variations)
                     # Match "Author, ( )" or "Author, (" with any whitespace
                     author_match = re.search(
                         r"([A-Z][a-zA-Z\s]+(?:et\s+al\.)?)\s*,\s*\(\s*\)?\s*$",
@@ -645,7 +654,8 @@ class HTMLPostProcessor:
                         if simple_match:
                             author_match = simple_match
 
-                    # Pattern 4: Check if full citation has "Author, ( )" pattern anywhere
+                    # Pattern 4: Check if full citation has
+                    # "Author, ( )" pattern anywhere
                     if not author_match:
                         anywhere_match = re.search(
                             r"([A-Z][a-zA-Z\s]+(?:et\s+al\.)?)\s*,\s*\(\s*\)",
@@ -658,8 +668,10 @@ class HTMLPostProcessor:
                         author = author_match.group(1).strip()
 
                         # Reconstruct citation properly: "Author, (Year)"
-                        # Wrap the ENTIRE citation in a single link (not just the year)
-                        # This ensures the full "Author, (Year)" is cited/linked together
+                        # Wrap the ENTIRE citation in a single link
+                        # (not just the year)
+                        # This ensures the full "Author, (Year)" is
+                        # cited/linked together
                         cite.clear()
 
                         # Create a new link that wraps the entire citation
@@ -676,14 +688,16 @@ class HTMLPostProcessor:
 
                         cite.append(full_citation_link)
                         logger.debug(
-                            f"Fixed citation format: '{cite_text}' -> '{author}, ({year})' (entire citation linked)"
+                            f"Fixed citation format: '{cite_text}' -> "
+                            f"'{author}, ({year})' (entire citation linked)"
                         )
 
             # Pattern 2: Citation only has year in parentheses (missing author)
             year_only_pattern = re.compile(r"^\s*\(\s*(\d{4}[a-z]?)\s*\)\s*$")
             if year_only_pattern.match(cite_text):
                 # This citation only has the year, need to find the author
-                # Look for author name before the citation in parent or previous siblings
+                # Look for author name before the citation in parent
+                # or previous siblings
                 parent = cite.parent
                 if parent:
                     # Get all text before the citation
@@ -715,14 +729,16 @@ class HTMLPostProcessor:
                             full_citation_link.string = f"{author}, ({year})"
                             cite.append(full_citation_link)
                             logger.debug(
-                                f"Fixed citation format: '{cite_text}' -> '{author}, ({year})' (entire citation linked)"
+                                f"Fixed citation format: '{cite_text}' -> "
+                                f"'{author}, ({year})' (entire citation linked)"
                             )
                         else:
                             # Check if author is in a previous sibling
                             prev_sibling = cite.find_previous_sibling()
                             if prev_sibling:
                                 prev_text = prev_sibling.get_text(strip=True)
-                                # Check if previous sibling ends with author name pattern
+                                # Check if previous sibling ends with
+                                # author name pattern
                                 author_match = re.search(
                                     r"([A-Z][a-zA-Z\s]+(?:et\s+al\.)?)\s*,\s*$",
                                     prev_text,
@@ -744,7 +760,10 @@ class HTMLPostProcessor:
                                     full_citation_link.string = f"{author}, ({year})"
                                     cite.append(full_citation_link)
                                     logger.debug(
-                                        f"Fixed citation format by merging sibling: '{cite_text}' -> '{author}, ({year})' (entire citation linked)"
+                                        f"Fixed citation format by merging "
+                                        f"sibling: '{cite_text}' -> "
+                                        f"'{author}, ({year})' "
+                                        f"(entire citation linked)"
                                     )
 
             # Pattern 3: Ensure citation is a single cohesive unit
@@ -788,7 +807,8 @@ class HTMLPostProcessor:
 
             rows = tbody.find_all("tr", class_=re.compile(r"ltx_equation|ltx_eqn_row"))
 
-            # If there's only one row, check if it has multiple cells that should be merged
+            # If there's only one row, check if it has multiple cells
+            # that should be merged
             if len(rows) == 1:
                 row = rows[0]
                 cells = row.find_all("td")
@@ -1001,7 +1021,8 @@ class HTMLPostProcessor:
         # Check if HTML is in a latexml subdirectory
         if html_dir.name == "latexml" and output_dir != html_dir:
             # Images are in latexml/figures/, but final HTML is in root
-            # So paths like "figures/figure-1.png" need to become "latexml/figures/figure-1.png"
+            # So paths like "figures/figure-1.png" need to become
+            # "latexml/figures/figure-1.png"
             for img in soup.find_all("img", src=True):
                 src = img.get("src", "")
                 if not src:
@@ -1152,11 +1173,10 @@ class HTMLPostProcessor:
         """Enhance links with proper attributes."""
         for link in soup.find_all("a"):
             href = link.get("href")
-            if href:
+            if href and self._is_external_link(href):
                 # Add target="_blank" for external links
-                if self._is_external_link(href):
-                    link["target"] = "_blank"
-                    link["rel"] = "noopener noreferrer"
+                link["target"] = "_blank"
+                link["rel"] = "noopener noreferrer"
 
     def _is_external_link(self, href: str) -> bool:
         """Check if link is external."""
@@ -1191,7 +1211,8 @@ class HTMLPostProcessor:
             style.string = """
             /* Base typography */
             body {
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                    Roboto, sans-serif;
                 line-height: 1.6;
                 max-width: 1200px;
                 margin: 0 auto;
@@ -1538,7 +1559,8 @@ class HTMLPostProcessor:
                             }
                         )
                     else:
-                        # Fallback: try the expected filename pattern with _wrapper suffix
+                        # Fallback: try the expected filename pattern
+                        # with _wrapper suffix
                         svg_file = assets_dir / f"tikz_diagram_{i}_wrapper.svg"
                         if svg_file.exists():
                             self._replace_element_with_svg(tikz["element"], svg_file)
@@ -1573,9 +1595,8 @@ class HTMLPostProcessor:
     ) -> None:
         """Convert PDF figures to SVG."""
         try:
-            for i, pdf in enumerate(pdf_figures):
+            for pdf in pdf_figures:
                 # Download or copy PDF file
-                pdf_file = assets_dir / f"pdf_figure_{i}.pdf"
                 # TODO: Implement PDF file handling
 
                 # Convert to SVG
@@ -1622,7 +1643,7 @@ class HTMLPostProcessor:
     ) -> None:
         """Convert PDF image assets to SVG."""
         try:
-            for i, img_asset in enumerate(image_assets):
+            for img_asset in image_assets:
                 if img_asset["type"] != "pdf_image":
                     continue
 
@@ -1675,7 +1696,8 @@ class HTMLPostProcessor:
                                 }
                             )
                             logger.info(
-                                f"Converted PDF image to SVG: {src} -> {relative_svg_path}"
+                                f"Converted PDF image to SVG: {src} -> "
+                                f"{relative_svg_path}"
                             )
                         else:
                             raise RuntimeError("SVG file not created")
@@ -1728,9 +1750,10 @@ class HTMLPostProcessor:
                         del tag.attrs[attr]
 
                 # Only remove xml:space if it's not in MathML/SVG context
-                if "xml:space" in tag.attrs:
-                    # Check if this is a MathML or SVG element that needs xml:space
-                    if tag.name not in [
+                if (
+                    "xml:space" in tag.attrs
+                    and tag.name
+                    not in [
                         "math",
                         "m:math",
                         "svg",
@@ -1738,8 +1761,9 @@ class HTMLPostProcessor:
                         "path",
                         "circle",
                         "rect",
-                    ]:
-                        del tag.attrs["xml:space"]
+                    ]
+                ):
+                    del tag.attrs["xml:space"]
 
     def _write_html(self, soup: BeautifulSoup, output_file: Path) -> None:
         """Write HTML to file."""
@@ -1750,9 +1774,7 @@ class HTMLPostProcessor:
                 f.write(str(soup.prettify()))
 
         except Exception as exc:
-            raise HTMLPostProcessingError(
-                f"Failed to write HTML file: {exc}"
-            ) from exc
+            raise HTMLPostProcessingError(f"Failed to write HTML file: {exc}") from exc
 
     def validate_html_file(self, html_file: Path) -> dict[str, Any]:
         """
@@ -1800,6 +1822,4 @@ class HTMLPostProcessor:
             }
 
         except Exception as exc:
-            raise HTMLPostProcessingError(
-                f"HTML validation failed: {exc}"
-            ) from exc
+            raise HTMLPostProcessingError(f"HTML validation failed: {exc}") from exc

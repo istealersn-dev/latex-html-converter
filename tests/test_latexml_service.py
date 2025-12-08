@@ -216,7 +216,7 @@ class TestLaTeXMLService:
             stderr = ""
 
             result = service._parse_conversion_result(
-                input_path, output_path, stdout, stderr
+                input_path, output_path, stdout, stderr, service.settings
             )
 
             assert result["success"] is True
@@ -323,11 +323,13 @@ class TestLaTeXMLService:
             output_dir.mkdir()
 
             # Mock the output file creation
-            with patch("pathlib.Path.exists", return_value=True):
-                with patch(
+            with (
+                patch("pathlib.Path.exists", return_value=True),
+                patch(
                     "app.services.latexml.get_file_info", return_value={"size": 1024}
-                ):
-                    result = service.convert_tex_to_html(input_file, output_dir)
+                ),
+            ):
+                result = service.convert_tex_to_html(input_file, output_dir)
 
             assert result["success"] is True
             assert result["input_file"] == str(input_file)
@@ -385,8 +387,6 @@ class TestLaTeXMLService:
 
     def test_convert_tex_to_html_with_options(self):
         """Test conversion with custom options."""
-        service = LaTeXMLService()
-
         options = LaTeXMLConversionOptions(
             output_format="xml",
             strict_mode=True,

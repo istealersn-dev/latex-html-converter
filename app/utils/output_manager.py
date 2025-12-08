@@ -72,7 +72,8 @@ def copy_conversion_results_to_output(
         }
 
         logger.info(
-            f"Copied {len(copied_files)} files to mounted output directory: {job_output_dir}"
+            f"Copied {len(copied_files)} files to mounted output "
+            f"directory: {job_output_dir}"
         )
         return result
 
