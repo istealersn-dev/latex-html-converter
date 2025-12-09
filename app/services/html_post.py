@@ -1594,10 +1594,62 @@ class HTMLPostProcessor:
         results: dict[str, Any],
     ) -> None:
         """Convert PDF figures to SVG."""
+        import shutil
+        from urllib.parse import unquote, urlparse
+
         try:
-            for pdf in pdf_figures:
-                # Download or copy PDF file
-                # TODO: Implement PDF file handling
+            for i, pdf in enumerate(pdf_figures):
+                # Get PDF file path from href or data attribute
+                pdf_path_str = pdf.get("href", "")
+                if not pdf_path_str:
+                    logger.warning(f"PDF figure {i} has no href/data attribute")
+                    results.setdefault("failed_assets", []).append(
+                        {
+                            "type": "pdf",
+                            "original": pdf.get("id", f"pdf_{i}"),
+                            "error": "No href/data attribute found",
+                        }
+                    )
+                    continue
+
+                # Parse and decode URL-encoded paths
+                pdf_path_str = unquote(pdf_path_str)
+
+                # Handle both absolute and relative paths
+                if pdf_path_str.startswith(("http://", "https://")):
+                    # External URL - skip for now (could implement download later)
+                    logger.warning(f"External PDF URLs not supported: {pdf_path_str}")
+                    results.setdefault("failed_assets", []).append(
+                        {
+                            "type": "pdf",
+                            "original": pdf.get("id", f"pdf_{i}"),
+                            "error": "External URLs not supported",
+                        }
+                    )
+                    continue
+
+                # Resolve relative path
+                # Assume PDF is relative to the assets directory or current HTML file
+                pdf_source = assets_dir / pdf_path_str
+                if not pdf_source.exists():
+                    # Try looking in parent directory
+                    pdf_source = assets_dir.parent / pdf_path_str
+                    if not pdf_source.exists():
+                        logger.warning(f"PDF file not found: {pdf_path_str}")
+                        results.setdefault("failed_assets", []).append(
+                            {
+                                "type": "pdf",
+                                "original": pdf.get("id", f"pdf_{i}"),
+                                "error": f"File not found: {pdf_path_str}",
+                            }
+                        )
+                        continue
+
+                # Copy PDF to assets directory if not already there
+                pdf_dest = assets_dir / f"pdf_figure_{i}.pdf"
+                if pdf_source != pdf_dest:
+                    shutil.copy2(pdf_source, pdf_dest)
+                    logger.debug(f"Copied PDF: {pdf_source} -> {pdf_dest}")
 
                 # Convert to SVG
                 conversion_result = self.asset_conversion_service.convert_assets(
@@ -1615,7 +1667,7 @@ class HTMLPostProcessor:
                         results.setdefault("converted_assets", []).append(
                             {
                                 "type": "pdf",
-                                "original": pdf["id"],
+                                "original": pdf.get("id", f"pdf_{i}"),
                                 "svg_file": str(svg_file),
                                 "success": True,
                             }
@@ -1624,7 +1676,7 @@ class HTMLPostProcessor:
                     results.setdefault("failed_assets", []).append(
                         {
                             "type": "pdf",
-                            "original": pdf["id"],
+                            "original": pdf.get("id", f"pdf_{i}"),
                             "error": "Conversion failed",
                         }
                     )

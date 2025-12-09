@@ -351,6 +351,72 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
         job.stages = stages
 
+    def _validate_latex_syntax(self, tex_file: Path) -> dict[str, Any]:
+        """
+        Perform basic LaTeX syntax validation.
+
+        Args:
+            tex_file: Path to the main .tex file
+
+        Returns:
+            Dict with validation results
+        """
+        validation_result = {
+            "valid": True,
+            "warnings": [],
+            "errors": [],
+        }
+
+        try:
+            if not tex_file.exists():
+                validation_result["valid"] = False
+                validation_result["errors"].append("Main .tex file not found")
+                return validation_result
+
+            # Read file content
+            with open(tex_file, encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+
+            # Check for basic LaTeX structure
+            if "\\documentclass" not in content and "\\begin{document}" not in content:
+                validation_result["warnings"].append(
+                    "Missing \\documentclass or \\begin{document} - may not be a valid LaTeX file"
+                )
+
+            # Check for balanced braces
+            brace_count = content.count("{") - content.count("}")
+            if brace_count != 0:
+                validation_result["warnings"].append(
+                    f"Unbalanced braces detected: {abs(brace_count)} {'extra opening' if brace_count > 0 else 'extra closing'} braces"
+                )
+
+            # Check for balanced environments
+            begin_count = content.count("\\begin{")
+            end_count = content.count("\\end{")
+            if begin_count != end_count:
+                validation_result["warnings"].append(
+                    f"Unbalanced environments: {begin_count} \\begin vs {end_count} \\end"
+                )
+
+            # Check for common syntax errors
+            if "\\end{document" in content and "\\end{document}" not in content:
+                validation_result["errors"].append(
+                    "Malformed \\end{document} - missing closing brace"
+                )
+                validation_result["valid"] = False
+
+            # File is too short - likely corrupted or empty
+            if len(content.strip()) < 50:
+                validation_result["warnings"].append(
+                    f"LaTeX file is very short ({len(content)} chars) - may be incomplete"
+                )
+
+        except Exception as exc:
+            validation_result["valid"] = False
+            validation_result["errors"].append(f"Failed to read LaTeX file: {exc}")
+
+        return validation_result
+
     def _execute_tectonic_stage(self, job: ConversionJob) -> None:
         """Execute Tectonic compilation stage with enhanced file discovery
         and package management."""
@@ -433,12 +499,41 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
                     if install_result.failed_packages:
                         failed_count = len(install_result.failed_packages)
-                        logger.debug(
-                            f"Could not install {failed_count} packages: "
-                            f"{install_result.failed_packages} "
-                            f"(may not be critical)"
-                        )
-                        # Continue anyway - some packages might not be critical
+
+                        # Define critical packages that are commonly required
+                        critical_packages = {
+                            "amsmath",
+                            "amssymb",
+                            "amsfonts",
+                            "graphicx",
+                            "hyperref",
+                            "geometry",
+                            "inputenc",
+                            "fontenc",
+                        }
+
+                        # Check if any critical packages failed
+                        failed_critical = [
+                            pkg
+                            for pkg in install_result.failed_packages
+                            if pkg in critical_packages
+                        ]
+
+                        if failed_critical:
+                            logger.warning(
+                                f"Failed to install {len(failed_critical)} CRITICAL packages: "
+                                f"{failed_critical}. Compilation may fail."
+                            )
+                            job.metadata["failed_critical_packages"] = failed_critical
+                        else:
+                            logger.debug(
+                                f"Could not install {failed_count} packages: "
+                                f"{install_result.failed_packages} "
+                                f"(likely not critical)"
+                            )
+
+                        # Store all failed packages in metadata for debugging
+                        job.metadata["failed_packages"] = install_result.failed_packages
 
             # Step 4: Compile with Tectonic
             logger.info("Starting Tectonic compilation...")
@@ -477,6 +572,30 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             # Update job metadata for fallback
             job.metadata["tectonic_failed"] = True
             job.metadata["fallback_reason"] = str(exc)
+
+            # Validate LaTeX syntax before continuing to LaTeXML
+            if "project_structure" in job.metadata:
+                main_tex_file = Path(job.metadata["project_structure"]["main_tex_file"])
+                validation = self._validate_latex_syntax(main_tex_file)
+
+                if not validation["valid"]:
+                    logger.error(
+                        f"LaTeX validation failed after Tectonic failure. "
+                        f"Errors: {validation['errors']}"
+                    )
+                    # Store validation errors in metadata
+                    job.metadata["latex_validation_errors"] = validation["errors"]
+                    # Still continue to LaTeXML, but warn that it may also fail
+                    logger.warning(
+                        "LaTeX has syntax errors - LaTeXML may also fail. "
+                        "Continuing anyway..."
+                    )
+
+                if validation["warnings"]:
+                    logger.warning(
+                        f"LaTeX validation warnings: {validation['warnings']}"
+                    )
+                    job.metadata["latex_validation_warnings"] = validation["warnings"]
 
             # Don't raise - allow pipeline to continue with LaTeXML-only
             logger.info("Continuing with LaTeXML-only conversion")
