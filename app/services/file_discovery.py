@@ -162,9 +162,11 @@ class FileDiscoveryService:
                     extract_path.parent.mkdir(parents=True, exist_ok=True)
 
                     # Extract file content
-                    with zip_file.open(str(file_path)) as source_file:
-                        with open(extract_path, "wb") as target_file:
-                            target_file.write(source_file.read())
+                    with (
+                        zip_file.open(str(file_path)) as source_file,
+                        open(extract_path, "wb") as target_file,
+                    ):
+                        target_file.write(source_file.read())
 
                 # Update project structure with actual extracted paths
                 project_structure.main_tex_file = (

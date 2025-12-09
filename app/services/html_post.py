@@ -233,7 +233,7 @@ class HTMLPostProcessor:
             if tag.attrs:
                 # Remove LaTeXML-specific attributes
                 latexml_attrs = [
-                    attr for attr in tag.attrs.keys() if attr.startswith("latexml")
+                    attr for attr in tag.attrs if attr.startswith("latexml")
                 ]
                 for attr in latexml_attrs:
                     del tag.attrs[attr]
@@ -1595,7 +1595,7 @@ class HTMLPostProcessor:
     ) -> None:
         """Convert PDF figures to SVG."""
         try:
-            for pdf in pdf_figures:
+            for idx, pdf in enumerate(pdf_figures):
                 # Download or copy PDF file
                 # TODO: Implement PDF file handling
 
@@ -1609,7 +1609,7 @@ class HTMLPostProcessor:
 
                 if conversion_result.get("success"):
                     # Replace PDF element with SVG
-                    svg_file = assets_dir / f"pdf_figure_{i}.svg"
+                    svg_file = assets_dir / f"pdf_figure_{idx}.svg"
                     if svg_file.exists():
                         self._replace_element_with_svg(pdf["element"], svg_file)
                         results.setdefault("converted_assets", []).append(
