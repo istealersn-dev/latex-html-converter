@@ -434,12 +434,9 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
                     if install_result.failed_packages:
                         failed_count = len(install_result.failed_packages)
                         logger.debug(
-                            failed_count = len(install_result.failed_packages)
-                            logger.debug(
-                                f"Could not install {failed_count} packages: "
-                                f"{install_result.failed_packages} "
-                                f"(may not be critical)"
-                            )
+                            f"Could not install {failed_count} packages: "
+                            f"{install_result.failed_packages} "
+                            f"(may not be critical)"
                         )
                         # Continue anyway - some packages might not be critical
 
@@ -733,12 +730,10 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
                     shutil.copy2(asset_file, dest_file)
                     assets_copied += 1
+                    relative_path = dest_file.relative_to(job.output_dir)
                     logger.debug(
-                        relative_path = dest_file.relative_to(job.output_dir)
-                        logger.debug(
-                            f"Copied asset: {asset_file.name} -> "
-                            f"{relative_path}"
-                        )
+                        f"Copied asset: {asset_file.name} -> "
+                        f"{relative_path}"
                     )
 
             # Copy CSS files from latexml output to root
