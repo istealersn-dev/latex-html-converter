@@ -1595,7 +1595,7 @@ class HTMLPostProcessor:
     ) -> None:
         """Convert PDF figures to SVG."""
         import shutil
-        from urllib.parse import unquote, urlparse
+        from urllib.parse import unquote
 
         try:
             for i, pdf in enumerate(pdf_figures):
@@ -1651,17 +1651,24 @@ class HTMLPostProcessor:
                     shutil.copy2(pdf_source, pdf_dest)
                     logger.debug(f"Copied PDF: {pdf_source} -> {pdf_dest}")
 
-                # Convert to SVG
-                conversion_result = self.asset_conversion_service.convert_assets(
+                # Convert specific PDF file to SVG using PDF service directly
+                # This avoids processing all PDFs in the directory
+                from app.config import settings
+
+                pdf_service = self.asset_conversion_service.pdf_service
+                conversion_result = pdf_service.convert_pdf_to_svg(
+                    pdf_dest,
                     assets_dir,
-                    assets_dir,
-                    asset_types=["pdf"],
-                    options={"timeout": 300},
+                    options={"timeout": settings.CONVERSION_TIMEOUT},
                 )
 
                 if conversion_result.get("success"):
-                    # Replace PDF element with SVG
-                    svg_file = assets_dir / f"pdf_figure_{i}.svg"
+                    # Get the output SVG file from conversion result
+                    svg_file = Path(conversion_result.get("output_file", ""))
+                    if not svg_file.exists():
+                        # Fallback: try expected filename
+                        svg_file = assets_dir / f"pdf_figure_{i}.svg"
+
                     if svg_file.exists():
                         self._replace_element_with_svg(pdf["element"], svg_file)
                         results.setdefault("converted_assets", []).append(
@@ -1672,12 +1679,21 @@ class HTMLPostProcessor:
                                 "success": True,
                             }
                         )
+                    else:
+                        results.setdefault("failed_assets", []).append(
+                            {
+                                "type": "pdf",
+                                "original": pdf.get("id", f"pdf_{i}"),
+                                "error": "SVG file not found after conversion",
+                            }
+                        )
                 else:
+                    error_msg = conversion_result.get("error", "Conversion failed")
                     results.setdefault("failed_assets", []).append(
                         {
                             "type": "pdf",
                             "original": pdf.get("id", f"pdf_{i}"),
-                            "error": "Conversion failed",
+                            "error": error_msg,
                         }
                     )
 

@@ -500,17 +500,10 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
                     if install_result.failed_packages:
                         failed_count = len(install_result.failed_packages)
 
-                        # Define critical packages that are commonly required
-                        critical_packages = {
-                            "amsmath",
-                            "amssymb",
-                            "amsfonts",
-                            "graphicx",
-                            "hyperref",
-                            "geometry",
-                            "inputenc",
-                            "fontenc",
-                        }
+                        # Get critical packages from centralized configuration
+                        from app.config import settings
+
+                        critical_packages = set(settings.CRITICAL_LATEX_PACKAGES)
 
                         # Check if any critical packages failed
                         failed_critical = [
