@@ -233,7 +233,7 @@ class HTMLPostProcessor:
             if tag.attrs:
                 # Remove LaTeXML-specific attributes
                 latexml_attrs = [
-                    attr for attr in tag.attrs.keys() if attr.startswith("latexml")
+                    attr for attr in tag.attrs if attr.startswith("latexml")
                 ]
                 for attr in latexml_attrs:
                     del tag.attrs[attr]

@@ -5,6 +5,7 @@ This service orchestrates the complete conversion workflow:
 Tectonic → LaTeXML → HTML Post-Processing
 """
 
+import shutil
 import threading
 import uuid
 from datetime import datetime
@@ -27,6 +28,9 @@ from app.services.file_discovery import (
     LatexDependencies,
     ProjectStructure,
 )
+from app.config import settings
+from app.configs.latexml import LaTeXMLConversionOptions, LaTeXMLSettings
+from app.services.assets import AssetConversionService
 from app.services.html_post import HTMLPostProcessingError, HTMLPostProcessor
 from app.services.latexml import LaTeXMLError, LaTeXMLService
 from app.services.package_manager import PackageManagerService
@@ -72,10 +76,6 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             file_discovery: File discovery service instance
             package_manager: Package manager service instance
         """
-        from app.config import settings
-        from app.configs.latexml import LaTeXMLSettings
-        from app.services.assets import AssetConversionService
-
         self.tectonic_service = tectonic_service or PDFLaTeXService(
             pdflatex_path=settings.PDFLATEX_PATH
         )
@@ -147,6 +147,11 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
                 output_dir=output_dir,
                 options=options.model_dump() if options else {},
                 status=ConversionStatus.PENDING,
+                started_at=None,
+                completed_at=None,
+                total_duration_seconds=None,
+                quality_score=None,
+                error_message=None,
             )
 
             # Initialize pipeline stages
@@ -159,7 +164,8 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             logger.info(f"Created conversion job: {job.job_id}")
             return job
 
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-except
+            # Catch all exceptions during job creation to provide proper error handling
             logger.exception(f"Failed to create conversion job: {exc}")
             raise ConversionPipelineError(
                 f"Failed to create conversion job: {exc}", "initialization"
@@ -208,9 +214,10 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
             logger.info(f"Pipeline execution completed for job: {job.job_id}")
 
-            return self._create_conversion_result(job)
+            return self.create_conversion_result(job)
 
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-except
+            # Catch all exceptions during pipeline execution to ensure proper cleanup
             logger.exception(f"Pipeline execution failed for job {job.job_id}: {exc}")
             job.status = ConversionStatus.FAILED
             job.completed_at = datetime.utcnow()
@@ -259,6 +266,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             stages_completed=completed_stages,
             total_stages=total_stages,
             elapsed_seconds=elapsed_seconds,
+            estimated_remaining_seconds=None,
             message=self._get_stage_message(job),
             warnings=self._collect_warnings(job),
             updated_at=datetime.utcnow(),
@@ -320,7 +328,8 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             logger.info(f"Cleaned up job: {job_id}")
             return True
 
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-except
+            # Catch all exceptions to prevent cleanup failure from crashing the service
             logger.exception(f"Failed to cleanup job {job_id}: {exc}")
             return False
 
@@ -330,21 +339,41 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             PipelineStage(
                 name="Tectonic Compilation",
                 status=ConversionStatus.PENDING,
+                started_at=None,
+                completed_at=None,
+                duration_seconds=None,
+                progress_percentage=0.0,
+                error_message=None,
                 metadata={"service": "tectonic"},
             ),
             PipelineStage(
                 name="LaTeXML Conversion",
                 status=ConversionStatus.PENDING,
+                started_at=None,
+                completed_at=None,
+                duration_seconds=None,
+                progress_percentage=0.0,
+                error_message=None,
                 metadata={"service": "latexml"},
             ),
             PipelineStage(
                 name="HTML Post-Processing",
                 status=ConversionStatus.PENDING,
+                started_at=None,
+                completed_at=None,
+                duration_seconds=None,
+                progress_percentage=0.0,
+                error_message=None,
                 metadata={"service": "html_post"},
             ),
             PipelineStage(
                 name="Output Validation",
                 status=ConversionStatus.PENDING,
+                started_at=None,
+                completed_at=None,
+                duration_seconds=None,
+                progress_percentage=0.0,
+                error_message=None,
                 metadata={"service": "validation"},
             ),
         ]
@@ -644,8 +673,6 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
                 project_dir = project_structure.project_dir
 
             # Convert with LaTeXML
-            from app.configs.latexml import LaTeXMLConversionOptions
-
             latexml_options = LaTeXMLConversionOptions(
                 **job.options.get("latexml_options", {})
             )
@@ -776,7 +803,8 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
             logger.info(f"Output validation completed for job: {job.job_id}")
 
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-except
+            # Catch all exceptions during output validation to mark stage as failed
             stage.status = ConversionStatus.FAILED
             stage.error_message = str(exc)
             stage.completed_at = datetime.utcnow()
@@ -786,8 +814,6 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
     def _copy_project_assets(self, job: ConversionJob) -> None:
         """Copy figures, images, and CSS from project directory to output."""
-        import shutil
-
         try:
             # Get project directory from metadata
             if (
@@ -808,8 +834,6 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
                 return
 
             # Get asset patterns from config
-            from app.config import settings
-
             asset_patterns = settings.ASSET_PATTERNS
             assets_copied = 0
 
@@ -859,7 +883,8 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
             logger.info(f"Copied {assets_copied} assets to output directory")
 
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-except
+            # Catch all exceptions to prevent asset copying failure from failing conversion
             logger.warning(f"Failed to copy project assets: {exc}")
             # Don't fail the conversion if asset copying fails
 
@@ -886,7 +911,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
         return min(max(score, 0.0), 100.0)
 
-    def _create_conversion_result(self, job: ConversionJob) -> ConversionResult:
+    def create_conversion_result(self, job: ConversionJob) -> ConversionResult:
         """Create conversion result from job."""
         return ConversionResult(
             job_id=job.job_id,
