@@ -895,7 +895,9 @@ class ConversionPipeline:
 
         except Exception as exc:
             # Catch all exceptions to prevent asset copying failure from failing conversion
-            logger.warning(f"Failed to copy project assets: {exc}")
+            logger.warning(
+                f"Failed to copy project assets: {exc}"
+            )
             # Don't fail the conversion if asset copying fails
 
     def _calculate_quality_score(self, job: ConversionJob) -> float:
