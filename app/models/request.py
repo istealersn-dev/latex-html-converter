@@ -3,7 +3,6 @@ Request models for the LaTeX → HTML5 Converter API.
 
 This module defines Pydantic models for API request validation.
 """
-# pylint: disable=no-self-argument
 
 from pydantic import BaseModel, Field, validator
 

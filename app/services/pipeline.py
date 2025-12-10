@@ -55,7 +55,7 @@ class PipelineResourceError(ConversionPipelineError):
     """Raised when pipeline exceeds resource limits."""
 
 
-class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
+class ConversionPipeline:
     """Main conversion pipeline orchestrator."""
 
     def __init__(
@@ -164,7 +164,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             logger.info(f"Created conversion job: {job.job_id}")
             return job
 
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             # Catch all exceptions during job creation to provide proper error handling
             logger.exception(f"Failed to create conversion job: {exc}")
             raise ConversionPipelineError(
@@ -216,7 +216,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
             return self.create_conversion_result(job)
 
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             # Catch all exceptions during pipeline execution to ensure proper cleanup
             logger.exception(f"Pipeline execution failed for job {job.job_id}: {exc}")
             job.status = ConversionStatus.FAILED
@@ -328,7 +328,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             logger.info(f"Cleaned up job: {job_id}")
             return True
 
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             # Catch all exceptions to prevent cleanup failure from crashing the service
             logger.exception(f"Failed to cleanup job {job_id}: {exc}")
             return False
@@ -415,8 +415,9 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             # Check for balanced braces
             brace_count = content.count("{") - content.count("}")
             if brace_count != 0:
+                brace_type = "extra opening" if brace_count > 0 else "extra closing"
                 validation_result["warnings"].append(
-                    f"Unbalanced braces detected: {abs(brace_count)} {'extra opening' if brace_count > 0 else 'extra closing'} braces"
+                    f"Unbalanced braces detected: {abs(brace_count)} {brace_type} braces"
                 )
 
             # Check for balanced environments
@@ -440,7 +441,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
                     f"LaTeX file is very short ({len(content)} chars) - may be incomplete"
                 )
 
-        except Exception as exc:
+        except OSError as exc:
             validation_result["valid"] = False
             validation_result["errors"].append(f"Failed to read LaTeX file: {exc}")
 
@@ -530,8 +531,6 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
                         failed_count = len(install_result.failed_packages)
 
                         # Get critical packages from centralized configuration
-                        from app.config import settings
-
                         critical_packages = set(settings.CRITICAL_LATEX_PACKAGES)
 
                         # Check if any critical packages failed
@@ -803,7 +802,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
             logger.info(f"Output validation completed for job: {job.job_id}")
 
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             # Catch all exceptions during output validation to mark stage as failed
             stage.status = ConversionStatus.FAILED
             stage.error_message = str(exc)
@@ -883,7 +882,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
             logger.info(f"Copied {assets_copied} assets to output directory")
 
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             # Catch all exceptions to prevent asset copying failure from failing conversion
             logger.warning(f"Failed to copy project assets: {exc}")
             # Don't fail the conversion if asset copying fails
