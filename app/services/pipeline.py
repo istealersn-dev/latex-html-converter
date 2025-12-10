@@ -328,8 +328,9 @@ class ConversionPipeline:
             logger.info(f"Cleaned up job: {job_id}")
             return True
 
-        except Exception as exc:
-            # Catch all exceptions to prevent cleanup failure from crashing the service
+        except (OSError, ValueError) as exc:
+            # Catch file system and path validation errors to prevent cleanup
+            # failure from crashing the service
             logger.exception(f"Failed to cleanup job {job_id}: {exc}")
             return False
 
@@ -893,8 +894,8 @@ class ConversionPipeline:
 
             logger.info(f"Copied {assets_copied} assets to output directory")
 
-        except Exception as exc:
-            # Catch all exceptions to prevent asset copying failure
+        except OSError as exc:
+            # Catch file system exceptions to prevent asset copying failure
             # from failing conversion
             logger.warning(
                 f"Failed to copy project assets: {exc}"

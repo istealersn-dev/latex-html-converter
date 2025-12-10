@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 
-def check_file_lengths(max_lines: int = 550, extensions: tuple = (".py",)) -> bool:
+def check_file_lengths(max_lines: int = 500, extensions: tuple = (".py",)) -> bool:
     """
     Check if any files exceed the maximum line limit.
 
@@ -46,14 +46,15 @@ def check_file_lengths(max_lines: int = 550, extensions: tuple = (".py",)) -> bo
                     continue
 
     if violations:
-        for _violation in violations:
-            pass
+        print("File length violations found:", file=sys.stderr)
+        for violation in violations:
+            print(f"  {violation}", file=sys.stderr)
         return False
     else:
         return True
 
 
 if __name__ == "__main__":
-    max_lines = int(sys.argv[1]) if len(sys.argv) > 1 else 550
+    max_lines = int(sys.argv[1]) if len(sys.argv) > 1 else 500
     success = check_file_lengths(max_lines)
     sys.exit(0 if success else 1)

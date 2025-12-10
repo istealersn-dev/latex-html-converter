@@ -38,6 +38,8 @@ httpx = "^0.28.1"
 [tool.ruff]
 line-length = 88
 target-version = "py311"
+# Note: File length checking (max 500 lines per file) is handled via pre-commit hook
+# since Ruff doesn't natively support total file length limits. See .pre-commit-config.yaml
 
 [tool.ruff.lint]
 select = [
