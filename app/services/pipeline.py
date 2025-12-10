@@ -894,9 +894,9 @@ class ConversionPipeline:
 
             logger.info(f"Copied {assets_copied} assets to output directory")
 
-        except OSError as exc:
-            # Catch file system exceptions to prevent asset copying failure
-            # from failing conversion
+        except (OSError, ValueError) as exc:
+            # Catch file system and path validation exceptions to prevent
+            # asset copying failure from failing conversion
             logger.warning(
                 f"Failed to copy project assets: {exc}"
             )
