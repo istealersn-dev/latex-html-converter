@@ -14,6 +14,8 @@ from typing import Any
 
 from loguru import logger
 
+from app.config import settings
+from app.configs.latexml import LaTeXMLConversionOptions, LaTeXMLSettings
 from app.models.conversion import (
     ConversionJob,
     ConversionOptions,
@@ -23,14 +25,12 @@ from app.models.conversion import (
     ConversionStatus,
     PipelineStage,
 )
+from app.services.assets import AssetConversionService
 from app.services.file_discovery import (
     FileDiscoveryService,
     LatexDependencies,
     ProjectStructure,
 )
-from app.config import settings
-from app.configs.latexml import LaTeXMLConversionOptions, LaTeXMLSettings
-from app.services.assets import AssetConversionService
 from app.services.html_post import HTMLPostProcessingError, HTMLPostProcessor
 from app.services.latexml import LaTeXMLError, LaTeXMLService
 from app.services.package_manager import PackageManagerService
@@ -409,7 +409,8 @@ class ConversionPipeline:
             # Check for basic LaTeX structure
             if "\\documentclass" not in content and "\\begin{document}" not in content:
                 validation_result["warnings"].append(
-                    "Missing \\documentclass or \\begin{document} - may not be a valid LaTeX file"
+                    "Missing \\documentclass or \\begin{document} - "
+                    "may not be a valid LaTeX file"
                 )
 
             # Check for balanced braces
@@ -417,7 +418,8 @@ class ConversionPipeline:
             if brace_count != 0:
                 brace_type = "extra opening" if brace_count > 0 else "extra closing"
                 validation_result["warnings"].append(
-                    f"Unbalanced braces detected: {abs(brace_count)} {brace_type} braces"
+                    f"Unbalanced braces detected: {abs(brace_count)} "
+                    f"{brace_type} braces"
                 )
 
             # Check for balanced environments
@@ -425,7 +427,8 @@ class ConversionPipeline:
             end_count = content.count("\\end{")
             if begin_count != end_count:
                 validation_result["warnings"].append(
-                    f"Unbalanced environments: {begin_count} \\begin vs {end_count} \\end"
+                    f"Unbalanced environments: {begin_count} \\begin vs "
+                    f"{end_count} \\end"
                 )
 
             # Check for common syntax errors
@@ -438,7 +441,8 @@ class ConversionPipeline:
             # File is too short - likely corrupted or empty
             if len(content.strip()) < 50:
                 validation_result["warnings"].append(
-                    f"LaTeX file is very short ({len(content)} chars) - may be incomplete"
+                    f"LaTeX file is very short ({len(content)} chars) - "
+                    f"may be incomplete"
                 )
 
         except OSError as exc:
@@ -531,7 +535,9 @@ class ConversionPipeline:
                         failed_count = len(install_result.failed_packages)
 
                         # Get critical packages from centralized configuration
-                        critical_packages = set(settings.CRITICAL_LATEX_PACKAGES)
+                        critical_packages = set(
+                            settings.CRITICAL_LATEX_PACKAGES
+                        )
 
                         # Check if any critical packages failed
                         failed_critical = [
@@ -542,8 +548,9 @@ class ConversionPipeline:
 
                         if failed_critical:
                             logger.warning(
-                                f"Failed to install {len(failed_critical)} CRITICAL packages: "
-                                f"{failed_critical}. Compilation may fail."
+                                f"Failed to install {len(failed_critical)} "
+                                f"CRITICAL packages: {failed_critical}. "
+                                f"Compilation may fail."
                             )
                             job.metadata["failed_critical_packages"] = failed_critical
                         else:
@@ -554,7 +561,9 @@ class ConversionPipeline:
                             )
 
                         # Store all failed packages in metadata for debugging
-                        job.metadata["failed_packages"] = install_result.failed_packages
+                        job.metadata["failed_packages"] = (
+                            install_result.failed_packages
+                        )
 
             # Step 4: Compile with Tectonic
             logger.info("Starting Tectonic compilation...")
@@ -596,7 +605,9 @@ class ConversionPipeline:
 
             # Validate LaTeX syntax before continuing to LaTeXML
             if "project_structure" in job.metadata:
-                main_tex_file = Path(job.metadata["project_structure"]["main_tex_file"])
+                main_tex_file = Path(
+                    job.metadata["project_structure"]["main_tex_file"]
+                )
                 validation = self._validate_latex_syntax(main_tex_file)
 
                 if not validation["valid"]:
