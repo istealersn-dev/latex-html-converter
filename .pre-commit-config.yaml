@@ -11,3 +11,12 @@ repos:
     hooks:
       - id: mypy
         additional_dependencies: [types-requests]
+
+  - repo: local
+    hooks:
+      - id: check-file-length
+        name: Check file length (max 500 lines)
+        entry: python scripts/check_file_lengths.py
+        language: system
+        types: [python]
+        pass_filenames: false

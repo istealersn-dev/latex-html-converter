@@ -16,7 +16,6 @@ from loguru import logger
 # Add the app directory to the Python path
 sys.path.insert(0, str(Path(__file__).parent / "app"))
 
-# pylint: disable=wrong-import-position
 from app.services.asset_validator import AssetValidator
 from app.services.assets import AssetConversionService
 from app.services.html_post import HTMLPostProcessor

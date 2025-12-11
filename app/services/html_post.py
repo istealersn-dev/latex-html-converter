@@ -26,38 +26,14 @@ except ImportError:
 
 from app.services.asset_validator import AssetValidator
 from app.services.assets import AssetConversionService
-
-
-class HTMLPostProcessingError(Exception):
-    """Base exception for HTML post-processing errors."""
-
-    def __init__(
-        self,
-        message: str,
-        error_type: str = "HTML_PROCESSING_ERROR",
-        details: dict[str, Any] | None = None,
-    ):
-        super().__init__(message)
-        self.error_type = error_type
-        self.details = details or {}
-
-
-class HTMLValidationError(HTMLPostProcessingError):
-    """Raised when HTML validation fails."""
-
-    def __init__(self, message: str, validation_errors: list[str]):
-        super().__init__(
-            message, "VALIDATION_ERROR", {"validation_errors": validation_errors}
-        )
-
-
-class HTMLCleaningError(HTMLPostProcessingError):
-    """Raised when HTML cleaning fails."""
-
-    def __init__(self, message: str, cleaning_errors: list[str]):
-        super().__init__(
-            message, "CLEANING_ERROR", {"cleaning_errors": cleaning_errors}
-        )
+from app.services.html_cleaner import clean_html, setup_cleaner
+from app.services.html_validator import validate_html_structure
+from app.services.html_optimizer import optimize_html
+from app.services.html_post_exceptions import (
+    HTMLCleaningError,
+    HTMLPostProcessingError,
+    HTMLValidationError,
+)
 
 
 class HTMLPostProcessor:
@@ -86,28 +62,7 @@ class HTMLPostProcessor:
 
     def _setup_cleaner(self) -> None:
         """Set up HTML cleaner with appropriate settings."""
-        if Cleaner is not None:
-            # Conservative settings: only remove truly dangerous content
-            # DO NOT remove scripts/styles as we need to add MathJax later
-            self.cleaner = Cleaner(
-                scripts=False,  # Keep scripts - we add MathJax scripts
-                javascript=False,  # Keep javascript URLs - needed for MathJax
-                comments=True,  # Remove HTML comments
-                style=False,  # Keep style tags - needed for math rendering
-                links=False,  # Keep links - needed for stylesheets
-                meta=False,  # Keep meta tags - needed for charset, viewport
-                page_structure=False,  # Keep page structure
-                processing_instructions=True,  # Remove XML processing instructions
-                embedded=True,  # Remove embedded objects (for security)
-                frames=True,  # Remove frames (security risk)
-                forms=True,  # Remove forms (not needed for LaTeX output)
-                annoying_tags=False,  # Keep tags - some might be needed
-                safe_attrs_only=False,  # Keep all attributes for MathML/MathJax
-                # Keep unknown tags - might be LaTeXML specific
-                remove_unknown_tags=False,
-            )
-        else:
-            self.cleaner = None
+        self.cleaner = setup_cleaner()
 
     def process_html(
         self,
@@ -156,7 +111,7 @@ class HTMLPostProcessor:
             cleaned_soup = self._clean_html(soup, processing_results)
 
             # Step 2: Validate HTML structure
-            self._validate_html_structure(cleaned_soup, processing_results)
+            validate_html_structure(cleaned_soup, processing_results)
 
             # Step 3: Convert assets to SVG
             asset_converted_soup = self._convert_assets_to_svg(
@@ -167,7 +122,7 @@ class HTMLPostProcessor:
             enhanced_soup = self._enhance_html(asset_converted_soup, processing_results)
 
             # Step 5: Optimize HTML
-            optimized_soup = self._optimize_html(enhanced_soup, processing_results)
+            optimized_soup = optimize_html(enhanced_soup, processing_results)
 
             # Generate output
             if output_file:
@@ -197,213 +152,8 @@ class HTMLPostProcessor:
         self, soup: BeautifulSoup, results: dict[str, Any]
     ) -> BeautifulSoup:
         """Clean HTML content."""
-        try:
-            # Remove LaTeXML-specific elements
-            self._remove_latexml_elements(soup)
+        return clean_html(soup, results)
 
-            # Clean dangerous content
-            self._clean_dangerous_content(soup)
-
-            # Remove empty elements
-            self._remove_empty_elements(soup)
-
-            # Normalize whitespace
-            self._normalize_whitespace(soup)
-
-            results["steps_completed"].append("html_cleaning")
-            return soup
-
-        except Exception as exc:
-            error_msg = f"HTML cleaning failed: {exc}"
-            results["errors"].append(error_msg)
-            logger.error(error_msg)
-            return soup
-
-    def _remove_latexml_elements(self, soup: BeautifulSoup) -> None:
-        """Remove LaTeXML-specific elements."""
-        # Remove LaTeXML processing instructions
-        for pi in soup.find_all(
-            string=lambda text: isinstance(text, NavigableString)
-            and text.strip().startswith("<?")
-        ):
-            pi.extract()
-
-        # Remove LaTeXML-specific attributes
-        for tag in soup.find_all():
-            if tag.attrs:
-                # Remove LaTeXML-specific attributes
-                latexml_attrs = [
-                    attr for attr in tag.attrs if attr.startswith("latexml")
-                ]
-                for attr in latexml_attrs:
-                    del tag.attrs[attr]
-
-    def _clean_dangerous_content(self, soup: BeautifulSoup) -> None:
-        """Remove potentially dangerous content while preserving safe scripts."""
-        # Remove only inline scripts and scripts with suspicious content
-        # Preserve scripts from trusted CDNs (MathJax, etc.)
-        trusted_script_sources = [
-            "cdn.jsdelivr.net",
-            "cdnjs.cloudflare.com",
-            "polyfill.io",
-            "mathjax",
-        ]
-
-        for script in soup.find_all("script"):
-            # Check if script has a src attribute
-            src = script.get("src", "")
-            script_content = script.string or ""
-
-            # Remove if:
-            # 1. Inline script with content (no src)
-            # 2. External script from untrusted source
-            # 3. Script contains suspicious patterns
-            is_trusted = any(domain in src.lower() for domain in trusted_script_sources)
-            has_inline_content = not src and script_content.strip()
-            has_suspicious_content = any(
-                pattern in script_content.lower()
-                for pattern in ["eval(", "document.write", "innerHTML", "fromCharCode"]
-            )
-
-            if has_inline_content or (src and not is_trusted) or has_suspicious_content:
-                logger.debug(
-                    f"Removing potentially dangerous script: {src or 'inline'}"
-                )
-                script.decompose()
-
-        # Remove style tags with potentially dangerous content
-        for style in soup.find_all("style"):
-            style_content = str(style.string or "")
-            if (
-                "javascript:" in style_content.lower()
-                or "expression(" in style_content.lower()
-            ):
-                logger.debug("Removing style tag with dangerous content")
-                style.decompose()
-
-        # Remove onclick and similar event handlers
-        for tag in soup.find_all():
-            if tag.attrs:
-                dangerous_attrs = [
-                    "onclick",
-                    "onload",
-                    "onerror",
-                    "onmouseover",
-                    "onfocus",
-                    "onblur",
-                ]
-                for attr in dangerous_attrs:
-                    if attr in tag.attrs:
-                        del tag.attrs[attr]
-
-    def _remove_empty_elements(self, soup: BeautifulSoup) -> None:
-        """Remove empty elements that don't add value."""
-        empty_tags = ["span", "div", "p"]
-
-        for tag_name in empty_tags:
-            for tag in soup.find_all(tag_name):
-                if not tag.get_text(strip=True) and not tag.find_all():
-                    tag.decompose()
-
-    def _normalize_whitespace(self, soup: BeautifulSoup) -> None:
-        """Normalize whitespace in text content while preserving
-        meaningful formatting."""
-        for text_node in soup.find_all(string=True):
-            if isinstance(text_node, NavigableString):
-                # Skip whitespace normalization in contexts where it's significant
-                parent = text_node.parent
-                if parent and parent.name in [
-                    "pre",
-                    "code",
-                    "textarea",
-                    "script",
-                    "style",
-                ]:
-                    continue
-
-                # Skip if this is whitespace between inline elements
-                # (preserves word separation)
-                if (
-                    text_node.strip() == ""
-                    and parent
-                    and parent.name in ["p", "div", "span", "em", "strong", "a"]
-                ):
-                    # Only collapse multiple spaces/tabs to single space, don't strip
-                    normalized = re.sub(r"[ \t]+", " ", text_node)
-                    if normalized != text_node:
-                        text_node.replace_with(normalized)
-                    continue
-
-                # For other text nodes, normalize but preserve word boundaries
-                if text_node.strip():  # Only process non-empty text nodes
-                    # Collapse multiple whitespace to single space,
-                    # but preserve leading/trailing if meaningful
-                    normalized = re.sub(r"[ \t\n\r]+", " ", text_node)
-                    # Only strip if the original was mostly whitespace
-                    if (
-                        len(text_node.strip()) / len(text_node) < 0.3
-                    ):  # Less than 30% actual content
-                        normalized = normalized.strip()
-                    text_node.replace_with(normalized)
-
-    def _validate_html_structure(
-        self, soup: BeautifulSoup, results: dict[str, Any]
-    ) -> None:
-        """Validate HTML structure."""
-        try:
-            validation_errors = []
-
-            # Check for required elements
-            if not soup.find("html"):
-                validation_errors.append("Missing <html> element")
-
-            if not soup.find("head"):
-                validation_errors.append("Missing <head> element")
-
-            if not soup.find("body"):
-                validation_errors.append("Missing <body> element")
-
-            # Check for proper nesting
-            self._validate_nesting(soup, validation_errors)
-
-            # Check for accessibility issues
-            self._validate_accessibility(soup, validation_errors)
-
-            if validation_errors:
-                results["warnings"].extend(validation_errors)
-            else:
-                results["steps_completed"].append("html_validation")
-
-        except Exception as exc:
-            error_msg = f"HTML validation failed: {exc}"
-            results["errors"].append(error_msg)
-
-    def _validate_nesting(self, soup: BeautifulSoup, errors: list[str]) -> None:
-        """Validate proper HTML nesting."""
-        # Check for invalid nesting (e.g., <p> inside <p>)
-        for p_tag in soup.find_all("p"):
-            if p_tag.find("p"):
-                errors.append("Invalid nesting: <p> inside <p>")
-
-    def _validate_accessibility(self, soup: BeautifulSoup, errors: list[str]) -> None:
-        """Validate accessibility features."""
-        # Check for images without alt text
-        for img in soup.find_all("img"):
-            if not img.get("alt"):
-                errors.append(f"Image missing alt text: {img.get('src', 'unknown')}")
-
-        # Check for headings structure
-        headings = soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"])
-        if headings:
-            # Check for proper heading hierarchy
-            prev_level = 0
-            for heading in headings:
-                level = int(heading.name[1])
-                if level > prev_level + 1:
-                    errors.append(
-                        f"Invalid heading hierarchy: {heading.name} after h{prev_level}"
-                    )
-                prev_level = level
 
     def _enhance_html(
         self, soup: BeautifulSoup, results: dict[str, Any]
@@ -1352,43 +1102,6 @@ class HTMLPostProcessor:
             """
             head.append(style)
 
-    def _optimize_html(
-        self, soup: BeautifulSoup, results: dict[str, Any]
-    ) -> BeautifulSoup:
-        """Optimize HTML for better performance."""
-        try:
-            # Minify HTML (basic)
-            self._minify_html(soup)
-
-            # Optimize images
-            self._optimize_images(soup)
-
-            # Remove unnecessary attributes
-            self._remove_unnecessary_attributes(soup)
-
-            results["steps_completed"].append("html_optimization")
-            return soup
-
-        except Exception as exc:
-            error_msg = f"HTML optimization failed: {exc}"
-            results["errors"].append(error_msg)
-            logger.error(error_msg)
-            return soup
-
-    def _minify_html(self, soup: BeautifulSoup) -> None:
-        """Basic HTML minification."""
-        # Remove unnecessary whitespace
-        for text_node in soup.find_all(string=True):
-            if isinstance(text_node, NavigableString):
-                # Remove leading/trailing whitespace
-                text_node.replace_with(text_node.strip())
-
-    def _optimize_images(self, soup: BeautifulSoup) -> None:
-        """Optimize image tags."""
-        for img in soup.find_all("img"):
-            # Add loading="lazy" for performance
-            if not img.get("loading"):
-                img["loading"] = "lazy"
 
     def _convert_assets_to_svg(
         self, soup: BeautifulSoup, html_dir: Path, results: dict[str, Any]
@@ -1594,38 +1307,106 @@ class HTMLPostProcessor:
         results: dict[str, Any],
     ) -> None:
         """Convert PDF figures to SVG."""
-        try:
-            for idx, pdf in enumerate(pdf_figures):
-                # Download or copy PDF file
-                # TODO: Implement PDF file handling
+        import shutil
+        from urllib.parse import unquote
 
-                # Convert to SVG
-                conversion_result = self.asset_conversion_service.convert_assets(
+        try:
+            for i, pdf in enumerate(pdf_figures):
+                # Get PDF file path from href or data attribute
+                pdf_path_str = pdf.get("href", "")
+                if not pdf_path_str:
+                    logger.warning(f"PDF figure {i} has no href/data attribute")
+                    results.setdefault("failed_assets", []).append(
+                        {
+                            "type": "pdf",
+                            "original": pdf.get("id", f"pdf_{i}"),
+                            "error": "No href/data attribute found",
+                        }
+                    )
+                    continue
+
+                # Parse and decode URL-encoded paths
+                pdf_path_str = unquote(pdf_path_str)
+
+                # Handle both absolute and relative paths
+                if pdf_path_str.startswith(("http://", "https://")):
+                    # External URL - skip for now (could implement download later)
+                    logger.warning(f"External PDF URLs not supported: {pdf_path_str}")
+                    results.setdefault("failed_assets", []).append(
+                        {
+                            "type": "pdf",
+                            "original": pdf.get("id", f"pdf_{i}"),
+                            "error": "External URLs not supported",
+                        }
+                    )
+                    continue
+
+                # Resolve relative path
+                # Assume PDF is relative to the assets directory or current HTML file
+                pdf_source = assets_dir / pdf_path_str
+                if not pdf_source.exists():
+                    # Try looking in parent directory
+                    pdf_source = assets_dir.parent / pdf_path_str
+                    if not pdf_source.exists():
+                        logger.warning(f"PDF file not found: {pdf_path_str}")
+                        results.setdefault("failed_assets", []).append(
+                            {
+                                "type": "pdf",
+                                "original": pdf.get("id", f"pdf_{i}"),
+                                "error": f"File not found: {pdf_path_str}",
+                            }
+                        )
+                        continue
+
+                # Copy PDF to assets directory if not already there
+                pdf_dest = assets_dir / f"pdf_figure_{i}.pdf"
+                if pdf_source != pdf_dest:
+                    shutil.copy2(pdf_source, pdf_dest)
+                    logger.debug(f"Copied PDF: {pdf_source} -> {pdf_dest}")
+
+                # Convert specific PDF file to SVG using PDF service directly
+                # This avoids processing all PDFs in the directory
+                from app.config import settings
+
+                pdf_service = self.asset_conversion_service.pdf_service
+                conversion_result = pdf_service.convert_pdf_to_svg(
+                    pdf_dest,
                     assets_dir,
-                    assets_dir,
-                    asset_types=["pdf"],
-                    options={"timeout": 300},
+                    options={"timeout": settings.CONVERSION_TIMEOUT},
                 )
 
                 if conversion_result.get("success"):
-                    # Replace PDF element with SVG
-                    svg_file = assets_dir / f"pdf_figure_{idx}.svg"
-                    if svg_file.exists():
+                    # Get the output SVG file from conversion result
+                    svg_file = Path(conversion_result.get("output_file", ""))
+                    if not svg_file.is_file():
+                        # Fallback: try expected filename
+                        svg_file = assets_dir / f"pdf_figure_{i}.svg"
+
+                    if svg_file.is_file():
                         self._replace_element_with_svg(pdf["element"], svg_file)
                         results.setdefault("converted_assets", []).append(
                             {
                                 "type": "pdf",
-                                "original": pdf["id"],
+                                "original": pdf.get("id", f"pdf_{i}"),
                                 "svg_file": str(svg_file),
                                 "success": True,
                             }
                         )
+                    else:
+                        results.setdefault("failed_assets", []).append(
+                            {
+                                "type": "pdf",
+                                "original": pdf.get("id", f"pdf_{i}"),
+                                "error": "SVG file not found after conversion",
+                            }
+                        )
                 else:
+                    error_msg = conversion_result.get("error", "Conversion failed")
                     results.setdefault("failed_assets", []).append(
                         {
                             "type": "pdf",
-                            "original": pdf["id"],
-                            "error": "Conversion failed",
+                            "original": pdf.get("id", f"pdf_{i}"),
+                            "error": error_msg,
                         }
                     )
 
@@ -1736,34 +1517,6 @@ class HTMLPostProcessor:
 
         except Exception as exc:
             logger.error("Failed to replace element with SVG: %s", exc)
-
-    def _remove_unnecessary_attributes(self, soup: BeautifulSoup) -> None:
-        """Remove unnecessary attributes while preserving namespace declarations."""
-        # Only remove LaTeXML-specific attributes, preserve XML namespaces
-        latexml_attrs = ["data-latexml"]
-
-        for tag in soup.find_all():
-            if tag.attrs:
-                # Remove LaTeXML-specific attributes
-                for attr in latexml_attrs:
-                    if attr in tag.attrs:
-                        del tag.attrs[attr]
-
-                # Only remove xml:space if it's not in MathML/SVG context
-                if (
-                    "xml:space" in tag.attrs
-                    and tag.name
-                    not in [
-                        "math",
-                        "m:math",
-                        "svg",
-                        "g",
-                        "path",
-                        "circle",
-                        "rect",
-                    ]
-                ):
-                    del tag.attrs["xml:space"]
 
     def _write_html(self, soup: BeautifulSoup, output_file: Path) -> None:
         """Write HTML to file."""

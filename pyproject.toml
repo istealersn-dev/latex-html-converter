@@ -33,12 +33,13 @@ ruff = "^0.6.9"
 mypy = "^1.11.2"
 pre-commit = "^3.8.0"
 types-psutil = "^7.0.0.20251001"
-pylint = "^3.3.9"
 httpx = "^0.28.1"
 
 [tool.ruff]
 line-length = 88
 target-version = "py311"
+# Note: File length checking (max 500 lines per file) is handled via pre-commit hook
+# since Ruff doesn't natively support total file length limits. See .pre-commit-config.yaml
 
 [tool.ruff.lint]
 select = [

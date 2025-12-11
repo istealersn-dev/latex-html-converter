@@ -13,7 +13,7 @@ from loguru import logger
 
 def optimize_svg(svg_file: Path, options: dict[str, Any]) -> Path:
     """
-    Optimize the SVG file.
+    Optimize the SVG file using the SVGOptimizer service.
 
     Args:
         svg_file: Path to SVG file to optimize
@@ -23,13 +23,34 @@ def optimize_svg(svg_file: Path, options: dict[str, Any]) -> Path:
         Path to optimized SVG file
     """
     try:
-        # For now, just return the original file
-        # TODO: Implement SVG optimization
-        logger.debug(f"SVG optimization placeholder: {svg_file}")
-        return svg_file
+        # Import here to avoid circular imports
+        from app.services.svg_optimizer import SVGOptimizer
+
+        # Initialize optimizer
+        optimizer = SVGOptimizer()
+
+        # Create output file path (in-place optimization by default)
+        output_file = options.get("output_file")
+        if output_file is None:
+            # Optimize in-place by overwriting the original
+            output_file = svg_file
+
+        # Perform optimization
+        logger.debug(f"Optimizing SVG: {svg_file}")
+        result = optimizer.optimize_svg(svg_file, output_file, options)
+
+        if result.get("success"):
+            logger.debug(
+                f"SVG optimization successful: "
+                f"{result.get('size_reduction_percent', 0):.1f}% size reduction"
+            )
+            return Path(result["optimized_file"])
+        else:
+            logger.warning(f"SVG optimization failed, returning original: {svg_file}")
+            return svg_file
 
     except Exception as exc:
-        logger.warning(f"SVG optimization failed: {exc}")
+        logger.warning(f"SVG optimization failed: {exc}, returning original file")
         return svg_file
 
 

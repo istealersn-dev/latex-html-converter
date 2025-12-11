@@ -37,7 +37,7 @@ class ResourceLimitError(OrchestrationError):
     """Raised when resource limits are exceeded."""
 
 
-class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
+class ConversionOrchestrator:
     """Main conversion orchestrator service."""
 
     def __init__(
@@ -399,7 +399,7 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
 
                 logger.info(f"Conversion task completed for job: {job.job_id}")
 
-            except Exception as exc:  # pylint: disable=broad-except
+            except Exception as exc:
                 # Catch all exceptions to ensure job cleanup and status update
                 logger.exception(f"Conversion task failed for job {job.job_id}: {exc}")
 
@@ -429,7 +429,7 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
                     self._stats["failed_jobs"] += 1
                     self._active_job_ids.discard(job.job_id)
 
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             # Thread creation failed - clean up immediately
             # Catch all exceptions to ensure proper cleanup on thread creation failure
             logger.exception(
@@ -472,7 +472,7 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
                 # Wait for next cleanup cycle
                 self._shutdown_event.wait(self.cleanup_interval)
 
-            except Exception as exc:  # pylint: disable=broad-except
+            except Exception as exc:
                 # Catch all exceptions to prevent cleanup loop from crashing
                 logger.exception(f"Cleanup loop error: {exc}")
                 time.sleep(60)  # Wait before retrying
@@ -487,7 +487,7 @@ class ConversionOrchestrator:  # pylint: disable=too-many-instance-attributes
                 # Wait for next monitoring cycle
                 self._shutdown_event.wait(30)
 
-            except Exception as exc:  # pylint: disable=broad-except
+            except Exception as exc:
                 # Catch all exceptions to prevent monitor loop from crashing
                 logger.exception(f"Monitor loop error: {exc}")
                 time.sleep(30)  # Wait before retrying
@@ -538,7 +538,7 @@ def get_orchestrator() -> ConversionOrchestrator:
     Returns:
         ConversionOrchestrator: Global orchestrator instance
     """
-    global _orchestrator  # pylint: disable=global-statement
+    global _orchestrator
 
     if _orchestrator is None:
         _orchestrator = ConversionOrchestrator(
@@ -552,7 +552,7 @@ def get_orchestrator() -> ConversionOrchestrator:
 
 def shutdown_orchestrator() -> None:
     """Shutdown the global orchestrator."""
-    global _orchestrator  # pylint: disable=global-statement
+    global _orchestrator
 
     if _orchestrator:
         _orchestrator.shutdown()

@@ -14,6 +14,8 @@ from typing import Any
 
 from loguru import logger
 
+from app.config import settings
+from app.configs.latexml import LaTeXMLConversionOptions, LaTeXMLSettings
 from app.models.conversion import (
     ConversionJob,
     ConversionOptions,
@@ -23,14 +25,12 @@ from app.models.conversion import (
     ConversionStatus,
     PipelineStage,
 )
+from app.services.assets import AssetConversionService
 from app.services.file_discovery import (
     FileDiscoveryService,
     LatexDependencies,
     ProjectStructure,
 )
-from app.config import settings
-from app.configs.latexml import LaTeXMLConversionOptions, LaTeXMLSettings
-from app.services.assets import AssetConversionService
 from app.services.html_post import HTMLPostProcessingError, HTMLPostProcessor
 from app.services.latexml import LaTeXMLError, LaTeXMLService
 from app.services.package_manager import PackageManagerService
@@ -55,7 +55,7 @@ class PipelineResourceError(ConversionPipelineError):
     """Raised when pipeline exceeds resource limits."""
 
 
-class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
+class ConversionPipeline:
     """Main conversion pipeline orchestrator."""
 
     def __init__(
@@ -164,7 +164,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             logger.info(f"Created conversion job: {job.job_id}")
             return job
 
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             # Catch all exceptions during job creation to provide proper error handling
             logger.exception(f"Failed to create conversion job: {exc}")
             raise ConversionPipelineError(
@@ -216,7 +216,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
             return self.create_conversion_result(job)
 
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             # Catch all exceptions during pipeline execution to ensure proper cleanup
             logger.exception(f"Pipeline execution failed for job {job.job_id}: {exc}")
             job.status = ConversionStatus.FAILED
@@ -328,8 +328,9 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             logger.info(f"Cleaned up job: {job_id}")
             return True
 
-        except Exception as exc:  # pylint: disable=broad-except
-            # Catch all exceptions to prevent cleanup failure from crashing the service
+        except (OSError, ValueError) as exc:
+            # Catch file system and path validation errors to prevent cleanup
+            # failure from crashing the service
             logger.exception(f"Failed to cleanup job {job_id}: {exc}")
             return False
 
@@ -379,6 +380,77 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
         ]
 
         job.stages = stages
+
+    def _validate_latex_syntax(self, tex_file: Path) -> dict[str, Any]:
+        """
+        Perform basic LaTeX syntax validation.
+
+        Args:
+            tex_file: Path to the main .tex file
+
+        Returns:
+            Dict with validation results
+        """
+        validation_result = {
+            "valid": True,
+            "warnings": [],
+            "errors": [],
+        }
+
+        try:
+            if not tex_file.exists():
+                validation_result["valid"] = False
+                validation_result["errors"].append("Main .tex file not found")
+                return validation_result
+
+            # Read file content
+            with open(tex_file, encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+
+            # Check for basic LaTeX structure
+            if "\\documentclass" not in content and "\\begin{document}" not in content:
+                validation_result["warnings"].append(
+                    "Missing \\documentclass or \\begin{document} - "
+                    "may not be a valid LaTeX file"
+                )
+
+            # Check for balanced braces
+            brace_count = content.count("{") - content.count("}")
+            if brace_count != 0:
+                brace_type = "extra opening" if brace_count > 0 else "extra closing"
+                validation_result["warnings"].append(
+                    f"Unbalanced braces detected: {abs(brace_count)} "
+                    f"{brace_type} braces"
+                )
+
+            # Check for balanced environments
+            begin_count = content.count("\\begin{")
+            end_count = content.count("\\end{")
+            if begin_count != end_count:
+                validation_result["warnings"].append(
+                    f"Unbalanced environments: {begin_count} \\begin vs "
+                    f"{end_count} \\end"
+                )
+
+            # Check for common syntax errors
+            if "\\end{document" in content and "\\end{document}" not in content:
+                validation_result["errors"].append(
+                    "Malformed \\end{document} - missing closing brace"
+                )
+                validation_result["valid"] = False
+
+            # File is too short - likely corrupted or empty
+            if len(content.strip()) < 50:
+                validation_result["warnings"].append(
+                    f"LaTeX file is very short ({len(content)} chars) - "
+                    f"may be incomplete"
+                )
+
+        except OSError as exc:
+            validation_result["valid"] = False
+            validation_result["errors"].append(f"Failed to read LaTeX file: {exc}")
+
+        return validation_result
 
     def _execute_tectonic_stage(self, job: ConversionJob) -> None:
         """Execute Tectonic compilation stage with enhanced file discovery
@@ -462,12 +534,37 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
                     if install_result.failed_packages:
                         failed_count = len(install_result.failed_packages)
-                        logger.debug(
-                            f"Could not install {failed_count} packages: "
-                            f"{install_result.failed_packages} "
-                            f"(may not be critical)"
+
+                        # Get critical packages from centralized configuration
+                        critical_packages = set(
+                            settings.CRITICAL_LATEX_PACKAGES
                         )
-                        # Continue anyway - some packages might not be critical
+
+                        # Check if any critical packages failed
+                        failed_critical = [
+                            pkg
+                            for pkg in install_result.failed_packages
+                            if pkg in critical_packages
+                        ]
+
+                        if failed_critical:
+                            logger.warning(
+                                f"Failed to install {len(failed_critical)} "
+                                f"CRITICAL packages: {failed_critical}. "
+                                f"Compilation may fail."
+                            )
+                            job.metadata["failed_critical_packages"] = failed_critical
+                        else:
+                            logger.debug(
+                                f"Could not install {failed_count} packages: "
+                                f"{install_result.failed_packages} "
+                                f"(likely not critical)"
+                            )
+
+                        # Store all failed packages in metadata for debugging
+                        job.metadata["failed_packages"] = (
+                            install_result.failed_packages
+                        )
 
             # Step 4: Compile with Tectonic
             logger.info("Starting Tectonic compilation...")
@@ -506,6 +603,32 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
             # Update job metadata for fallback
             job.metadata["tectonic_failed"] = True
             job.metadata["fallback_reason"] = str(exc)
+
+            # Validate LaTeX syntax before continuing to LaTeXML
+            if "project_structure" in job.metadata:
+                main_tex_file = Path(
+                    job.metadata["project_structure"]["main_tex_file"]
+                )
+                validation = self._validate_latex_syntax(main_tex_file)
+
+                if not validation["valid"]:
+                    logger.error(
+                        f"LaTeX validation failed after Tectonic failure. "
+                        f"Errors: {validation['errors']}"
+                    )
+                    # Store validation errors in metadata
+                    job.metadata["latex_validation_errors"] = validation["errors"]
+                    # Still continue to LaTeXML, but warn that it may also fail
+                    logger.warning(
+                        "LaTeX has syntax errors - LaTeXML may also fail. "
+                        "Continuing anyway..."
+                    )
+
+                if validation["warnings"]:
+                    logger.warning(
+                        f"LaTeX validation warnings: {validation['warnings']}"
+                    )
+                    job.metadata["latex_validation_warnings"] = validation["warnings"]
 
             # Don't raise - allow pipeline to continue with LaTeXML-only
             logger.info("Continuing with LaTeXML-only conversion")
@@ -691,7 +814,7 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
             logger.info(f"Output validation completed for job: {job.job_id}")
 
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             # Catch all exceptions during output validation to mark stage as failed
             stage.status = ConversionStatus.FAILED
             stage.error_message = str(exc)
@@ -771,9 +894,12 @@ class ConversionPipeline:  # pylint: disable=too-many-instance-attributes
 
             logger.info(f"Copied {assets_copied} assets to output directory")
 
-        except Exception as exc:  # pylint: disable=broad-except
-            # Catch all exceptions to prevent asset copying failure from failing conversion
-            logger.warning(f"Failed to copy project assets: {exc}")
+        except (OSError, ValueError) as exc:
+            # Catch file system and path validation exceptions to prevent
+            # asset copying failure from failing conversion
+            logger.warning(
+                f"Failed to copy project assets: {exc}"
+            )
             # Don't fail the conversion if asset copying fails
 
     def _calculate_quality_score(self, job: ConversionJob) -> float:

@@ -66,6 +66,18 @@ class Settings(BaseSettings):
     MAX_CONCURRENT_CONVERSIONS: int = 5
     CONVERSION_RETENTION_HOURS: int = 24  # How long to keep conversion results
 
+    # LaTeX package settings
+    CRITICAL_LATEX_PACKAGES: list[str] = [
+        "amsmath",
+        "amssymb",
+        "amsfonts",
+        "graphicx",
+        "hyperref",
+        "geometry",
+        "inputenc",
+        "fontenc",
+    ]
+
     # Security settings
     SECRET_KEY: str = "dev-secret-key-change-in-production-min-64-chars-required-now"
 
