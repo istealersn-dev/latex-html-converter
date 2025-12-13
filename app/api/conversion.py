@@ -646,8 +646,16 @@ async def get_conversion_status(conversion_id: str) -> ConversionStatusResponse:
 
         # Get error message if failed
         error_message = None
-        if status == ConversionStatusEnum.FAILED and job_result and job_result.errors:
-            error_message = "; ".join(job_result.errors)
+        diagnostics = None
+        if status == ConversionStatusEnum.FAILED:
+            if job_result and job_result.errors:
+                error_message = "; ".join(job_result.errors)
+            
+            # Get detailed diagnostics for failed conversions
+            try:
+                diagnostics = orchestrator.get_job_diagnostics(conversion_id)
+            except Exception as diag_exc:
+                logger.warning(f"Failed to get diagnostics: {diag_exc}")
 
         return ConversionStatusResponse(
             conversion_id=conversion_id,
@@ -658,6 +666,7 @@ async def get_conversion_status(conversion_id: str) -> ConversionStatusResponse:
             created_at=created_at,
             updated_at=datetime.utcnow(),
             error_message=error_message,
+            diagnostics=diagnostics,
         )
 
     except HTTPException:

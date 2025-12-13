@@ -333,11 +333,18 @@ class HTMLPostProcessor:
         This method ensures citations are in the format "Author, (Year)"
         with the ENTIRE citation wrapped in a single link (not just the year).
 
+        Handles multiple patterns:
+        - "Author, ( ) <a>Year</a>" -> "<a>Author, (Year)</a>"
+        - "Author, (Year)" with only year linked -> "<a>Author, (Year)</a>"
+        - "(Year)" with author in previous text -> "<a>Author, (Year)</a>"
+        - Multiple text nodes in citation -> merged into single link
+
         Original structure: "Author, ( ) <a>Year</a>" or
         "Author, (Year)" with only year linked
         Desired structure: "<a>Author, (Year)</a>" - entire citation linked
         """
-        for cite in soup.find_all("cite", class_=re.compile(r"ltx_cite")):
+        # Process all cite elements, including those without class
+        for cite in soup.find_all("cite"):
             cite_text = cite.get_text(strip=True)
 
             # Check if citation structure has author and year separated
@@ -542,8 +549,10 @@ class HTMLPostProcessor:
         """
         Fix equation tables to ensure equations stay in single rows.
 
-        LaTeXML sometimes splits equations across multiple table rows.
-        This method ensures each equation is in a maximum 1x1 table structure.
+        LaTeXML sometimes splits equations across multiple table rows or cells.
+        MathJax may also split equations into multiple <mjx-container> elements.
+        This method ensures each equation is in a maximum 1x1 table structure
+        with all math content merged into a single element.
         """
         # Find all equation tables
         equation_tables = soup.find_all(
@@ -568,8 +577,12 @@ class HTMLPostProcessor:
                     # Find the cell with the actual equation (math element)
                     equation_cell = None
                     for cell in cells:
-                        if cell.find(["math", "m:math"]) or cell.find_all(
-                            ["span", "div"], class_=["math", "math-display"]
+                        # Check for MathML, MathJax, or math class elements
+                        if (
+                            cell.find(["math", "m:math"])
+                            or cell.find_all(["span", "div"], class_=["math", "math-display"])
+                            or cell.find("mjx-container")
+                            or cell.find("mjx-math")
                         ):
                             equation_cell = cell
                             break
@@ -595,14 +608,21 @@ class HTMLPostProcessor:
                             row.clear()
                             row.append(new_cell)
                             logger.debug("Merged equation table cells into single cell")
+                    
+                    # Also merge multiple MathJax containers in the same cell
+                    if equation_cell:
+                        self._merge_mathjax_containers(equation_cell)
 
             # If there are multiple rows, merge them into a single row
             elif len(rows) > 1:
                 # Find the row with the main equation content
                 main_row = None
                 for row in rows:
-                    if row.find(["math", "m:math"]) or row.find_all(
-                        ["span", "div"], class_=["math", "math-display"]
+                    if (
+                        row.find(["math", "m:math"])
+                        or row.find_all(["span", "div"], class_=["math", "math-display"])
+                        or row.find("mjx-container")
+                        or row.find("mjx-math")
                     ):
                         main_row = row
                         break
@@ -616,13 +636,30 @@ class HTMLPostProcessor:
                     if row != main_row:
                         # Move equation content from other rows
                         for cell in row.find_all("td"):
-                            math_elements = cell.find_all(["math", "m:math"])
+                            # Find all math elements (MathML, MathJax, or math classes)
+                            math_elements = (
+                                cell.find_all(["math", "m:math"])
+                                + cell.find_all("mjx-container")
+                                + cell.find_all("mjx-math")
+                                + cell.find_all(["span", "div"], class_=["math", "math-display"])
+                            )
                             if math_elements:
                                 # Add to main row
                                 main_cell = main_row.find("td", class_="ltx_eqn_cell")
-                                if main_cell:
-                                    for math_elem in math_elements:
-                                        main_cell.append(math_elem)
+                                if not main_cell:
+                                    # Create main cell if it doesn't exist
+                                    main_cell = soup.new_tag(
+                                        "td", attrs={"class": "ltx_eqn_cell ltx_align_center"}
+                                    )
+                                    main_row.append(main_cell)
+                                for math_elem in math_elements:
+                                    main_cell.append(math_elem)
+                            # Move any other content too
+                            for content in list(cell.children):
+                                if content not in math_elements:
+                                    main_cell = main_row.find("td", class_="ltx_eqn_cell")
+                                    if main_cell:
+                                        main_cell.append(content)
                             cell.decompose()
                         row.decompose()
 
@@ -635,6 +672,12 @@ class HTMLPostProcessor:
                         for content in list(cell.children):
                             main_cell.append(content)
                         cell.decompose()
+
+                # Merge MathJax containers in the merged row
+                if main_row:
+                    main_cell = main_row.find("td")
+                    if main_cell:
+                        self._merge_mathjax_containers(main_cell)
 
                 logger.debug(f"Merged {len(rows)} equation rows into single row")
 
@@ -663,6 +706,45 @@ class HTMLPostProcessor:
                             for content in list(cell.children):
                                 first_cell.append(content)
                             cell.decompose()
+                    
+                    # Merge MathJax containers in the final cell
+                    if equation_cell:
+                        self._merge_mathjax_containers(equation_cell)
+                    elif final_rows[0].find("td"):
+                        self._merge_mathjax_containers(final_rows[0].find("td"))
+
+    def _merge_mathjax_containers(self, container) -> None:
+        """
+        Merge multiple MathJax containers into a single container.
+        
+        MathJax 3.x outputs <mjx-container> elements that may be split
+        across multiple elements. This method merges them into one.
+        """
+        # Find all MathJax containers in this element
+        mjx_containers = container.find_all("mjx-container")
+        
+        if len(mjx_containers) <= 1:
+            return  # Nothing to merge
+        
+        # Find the first container to use as the base
+        first_container = mjx_containers[0]
+        first_math = first_container.find("mjx-math")
+        
+        # Merge all other containers into the first one
+        for mjx_container in mjx_containers[1:]:
+            mjx_math = mjx_container.find("mjx-math")
+            if mjx_math and first_math:
+                # Merge the math content
+                for child in list(mjx_math.children):
+                    first_math.append(child)
+            # Move any other content from the container
+            for child in list(mjx_container.children):
+                if child != mjx_math:
+                    first_container.append(child)
+            # Remove the merged container
+            mjx_container.decompose()
+        
+        logger.debug(f"Merged {len(mjx_containers)} MathJax containers into one")
 
     def _remove_latexml_warnings(self, soup: BeautifulSoup) -> None:
         """Remove LaTeXML warning and error messages from HTML output."""

@@ -5,6 +5,7 @@ This module provides the LaTeXMLService class for converting LaTeX documents
 to XML/HTML using LaTeXML with proper error handling and configuration.
 """
 
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -200,7 +201,31 @@ class LaTeXMLService:
                     error_info = self._parse_conversion_error(
                         result.stderr, result.stdout
                     )
-                    logger.error("LaTeXML conversion failed: %s", error_info["message"])
+                    
+                    # Enhance error details with file information
+                    error_info["details"]["input_file"] = str(input_file)
+                    error_info["details"]["output_file"] = str(output_file)
+                    error_info["details"]["command"] = " ".join(cmd)
+                    error_info["details"]["return_code"] = result.returncode
+                    
+                    # Extract specific error lines for better diagnostics
+                    if result.stderr:
+                        error_lines = [
+                            line.strip()
+                            for line in result.stderr.split("\n")
+                            if line.strip() and any(
+                                keyword in line.lower()
+                                for keyword in ["error", "fatal", "undefined", "missing"]
+                            )
+                        ]
+                        if error_lines:
+                            error_info["details"]["key_errors"] = error_lines[:10]
+                    
+                    logger.error(
+                        "LaTeXML conversion failed: %s",
+                        error_info["message"],
+                        extra={"error_details": error_info["details"]},
+                    )
                     raise LaTeXMLConversionError(
                         error_info["message"],
                         error_info["error_type"],
@@ -295,45 +320,100 @@ class LaTeXMLService:
             stdout: Standard output
 
         Returns:
-            Dict with error information
+            Dict with error information including suggestions
         """
         error_lines = stderr.strip().split("\n") if stderr else []
+        suggestions = []
 
-        # Common LaTeXML error patterns
+        # Common LaTeXML error patterns with suggestions
         if any("Fatal error" in line for line in error_lines):
+            suggestions.append(
+                "Check LaTeX syntax and ensure all required packages are installed"
+            )
             return {
                 "message": "LaTeXML fatal error occurred",
                 "error_type": "FATAL_ERROR",
                 "details": {"stderr": stderr, "stdout": stdout},
+                "suggestions": suggestions,
             }
 
         if any("Undefined control sequence" in line for line in error_lines):
+            # Extract the undefined command if possible
+            undefined_cmd = None
+            for line in error_lines:
+                match = re.search(r"Undefined control sequence.*?\\?(\w+)", line)
+                if match:
+                    undefined_cmd = match.group(1)
+                    break
+            
+            suggestions.append(
+                f"Missing LaTeX command or package: {undefined_cmd or 'unknown'}"
+            )
+            suggestions.append(
+                "Try adding the required package with \\usepackage{<package>}"
+            )
             return {
-                "message": "Undefined LaTeX control sequence",
+                "message": f"Undefined LaTeX control sequence: {undefined_cmd or 'unknown'}",
                 "error_type": "UNDEFINED_CONTROL",
-                "details": {"stderr": stderr, "stdout": stdout},
+                "details": {
+                    "stderr": stderr,
+                    "stdout": stdout,
+                    "undefined_command": undefined_cmd,
+                },
+                "suggestions": suggestions,
             }
 
-        if any("File not found" in line for line in error_lines):
+        if any("File not found" in line or "not found" in line.lower() for line in error_lines):
+            # Extract missing file if possible
+            missing_file = None
+            for line in error_lines:
+                match = re.search(r"File.*?not found.*?([^\s]+)", line, re.IGNORECASE)
+                if match:
+                    missing_file = match.group(1)
+                    break
+            
+            suggestions.append(f"Missing file: {missing_file or 'unknown'}")
+            suggestions.append("Ensure all referenced files are included in the archive")
             return {
-                "message": "Required file not found",
+                "message": f"Required file not found: {missing_file or 'unknown'}",
                 "error_type": "FILE_NOT_FOUND",
-                "details": {"stderr": stderr, "stdout": stdout},
+                "details": {
+                    "stderr": stderr,
+                    "stdout": stdout,
+                    "missing_file": missing_file,
+                },
+                "suggestions": suggestions,
             }
 
         if any("Emergency stop" in line for line in error_lines):
+            suggestions.append("Check LaTeX syntax for errors before the emergency stop")
+            suggestions.append("Review the error log for specific line numbers")
             return {
                 "message": "LaTeX emergency stop",
                 "error_type": "EMERGENCY_STOP",
                 "details": {"stderr": stderr, "stdout": stdout},
+                "suggestions": suggestions,
+            }
+
+        # Check for missing packages
+        if any("package" in line.lower() and "not found" in line.lower() for line in error_lines):
+            suggestions.append("Install missing LaTeX packages using tlmgr or apt")
+            return {
+                "message": "Missing LaTeX package",
+                "error_type": "MISSING_PACKAGE",
+                "details": {"stderr": stderr, "stdout": stdout},
+                "suggestions": suggestions,
             }
 
         # Generic error
         error_message = error_lines[-1] if error_lines else "Unknown LaTeXML error"
+        suggestions.append("Review LaTeXML error output for specific issues")
+        suggestions.append("Check that input file is valid LaTeX")
         return {
             "message": error_message,
             "error_type": "CONVERSION_ERROR",
             "details": {"stderr": stderr, "stdout": stdout},
+            "suggestions": suggestions,
         }
 
     def _parse_conversion_result(

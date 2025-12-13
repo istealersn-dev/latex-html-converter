@@ -76,6 +76,9 @@ class ConversionStatusResponse(BaseModel):
 
     # Error information
     error_message: str | None = Field(default=None)
+    diagnostics: dict[str, Any] | None = Field(
+        default=None, description="Detailed diagnostics for failed conversions"
+    )
 
     @model_validator(mode="after")
     def set_job_id(self) -> "ConversionStatusResponse":

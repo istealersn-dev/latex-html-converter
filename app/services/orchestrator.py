@@ -208,6 +208,28 @@ class ConversionOrchestrator:
 
             return self._pipeline.create_conversion_result(job)
 
+    def get_job_diagnostics(self, job_id: str) -> dict[str, Any] | None:
+        """
+        Get detailed diagnostics for a conversion job.
+
+        Args:
+            job_id: Job identifier
+
+        Returns:
+            Dict with diagnostic information or None if job not found
+        """
+        with self._job_lock:
+            job = self._jobs.get(job_id)
+            if not job:
+                return None
+
+            # Get diagnostics from job metadata if available
+            if "diagnostics" in job.metadata:
+                return job.metadata["diagnostics"]
+            
+            # Otherwise collect diagnostics from pipeline
+            return self._pipeline._collect_conversion_diagnostics(job)
+
     def cancel_job(self, job_id: str) -> bool:
         """
         Cancel a running conversion job.

@@ -96,11 +96,75 @@ class ConversionPipeline:
         # Pipeline configuration
         self.max_concurrent_jobs = 5
         self.default_timeout = 600  # 10 minutes
+        self.max_timeout = 1800  # 30 minutes maximum
         self.cleanup_delay = 3600  # 1 hour
 
         # Active jobs tracking
         self._active_jobs: dict[str, ConversionJob] = {}
         self._job_lock = threading.RLock()  # Thread-safe access to active jobs
+
+    def _calculate_adaptive_timeout(self, input_file: Path) -> int:
+        """
+        Calculate adaptive timeout based on file size and complexity.
+        
+        Args:
+            input_file: Path to input file or directory
+            
+        Returns:
+            Timeout in seconds
+        """
+        base_timeout = self.default_timeout
+        
+        try:
+            # Calculate total size of input files
+            total_size = 0
+            file_count = 0
+            
+            if input_file.is_file():
+                total_size = input_file.stat().st_size
+                file_count = 1
+            elif input_file.is_dir():
+                for file_path in input_file.rglob("*"):
+                    if file_path.is_file():
+                        try:
+                            total_size += file_path.stat().st_size
+                            file_count += 1
+                        except OSError:
+                            continue
+            
+            # Adaptive timeout calculation:
+            # Base: 10 minutes (600s)
+            # + 1 second per MB for files up to 50MB
+            # + 2 seconds per MB for files 50-100MB
+            # + 5 seconds per MB for files > 100MB
+            # + 0.1 seconds per file (complexity factor)
+            
+            size_mb = total_size / (1024 * 1024)
+            
+            if size_mb <= 50:
+                size_factor = size_mb * 1  # 1 second per MB
+            elif size_mb <= 100:
+                size_factor = 50 + (size_mb - 50) * 2  # 2 seconds per MB above 50MB
+            else:
+                size_factor = 150 + (size_mb - 100) * 5  # 5 seconds per MB above 100MB
+            
+            file_factor = file_count * 0.1  # 0.1 seconds per file
+            
+            calculated_timeout = int(base_timeout + size_factor + file_factor)
+            
+            # Cap at maximum timeout
+            timeout = min(calculated_timeout, self.max_timeout)
+            
+            logger.debug(
+                f"Calculated adaptive timeout: {timeout}s "
+                f"(size: {size_mb:.1f}MB, files: {file_count})"
+            )
+            
+            return timeout
+            
+        except Exception as exc:
+            logger.warning(f"Failed to calculate adaptive timeout: {exc}, using default")
+            return base_timeout
 
     def create_conversion_job(
         self,
@@ -157,11 +221,26 @@ class ConversionPipeline:
             # Initialize pipeline stages
             self._initialize_pipeline_stages(job)
 
+            # Calculate adaptive timeout based on input file size/complexity
+            calculated_timeout = self._calculate_adaptive_timeout(input_file)
+            # Store timeout in job metadata for reference
+            job.metadata["calculated_timeout"] = calculated_timeout
+            # Use timeout from options if provided, otherwise use calculated
+            job_timeout = (
+                options.max_processing_time
+                if options and hasattr(options, "max_processing_time")
+                else calculated_timeout
+            )
+            job.metadata["timeout_seconds"] = job_timeout
+
             # Register job in active jobs tracking (thread-safe)
             with self._job_lock:
                 self._active_jobs[job.job_id] = job
 
-            logger.info(f"Created conversion job: {job.job_id}")
+            logger.info(
+                f"Created conversion job: {job.job_id} "
+                f"(timeout: {job_timeout}s)"
+            )
             return job
 
         except Exception as exc:
@@ -183,23 +262,34 @@ class ConversionPipeline:
 
         Raises:
             ConversionPipelineError: If pipeline execution fails
+            PipelineTimeoutError: If pipeline execution exceeds timeout
         """
         job.status = ConversionStatus.RUNNING
         job.started_at = datetime.utcnow()
 
+        # Get timeout from job metadata or use default
+        timeout_seconds = job.metadata.get("timeout_seconds", self.default_timeout)
+
         try:
-            logger.info(f"Starting pipeline execution for job: {job.job_id}")
+            logger.info(
+                f"Starting pipeline execution for job: {job.job_id} "
+                f"(timeout: {timeout_seconds}s)"
+            )
 
             # Stage 1: Tectonic Compilation
+            self._check_timeout(job, timeout_seconds)
             self._execute_tectonic_stage(job)
 
             # Stage 2: LaTeXML Conversion
+            self._check_timeout(job, timeout_seconds)
             self._execute_latexml_stage(job)
 
             # Stage 3: HTML Post-Processing
+            self._check_timeout(job, timeout_seconds)
             self._execute_post_processing_stage(job)
 
             # Stage 4: Validation
+            self._check_timeout(job, timeout_seconds)
             self._execute_validation_stage(job)
 
             # Complete job
@@ -216,15 +306,54 @@ class ConversionPipeline:
 
             return self.create_conversion_result(job)
 
-        except Exception as exc:
+        except PipelineTimeoutError:
+            # Collect diagnostics before re-raising
+            diagnostics = self._collect_conversion_diagnostics(job)
+            job.metadata["diagnostics"] = diagnostics
+            logger.error(
+                f"Pipeline timeout for job {job.job_id}",
+                extra={"diagnostics": diagnostics},
+            )
+            raise
+        except Exception as exc:  # pylint: disable=broad-except
             # Catch all exceptions during pipeline execution to ensure proper cleanup
-            logger.exception(f"Pipeline execution failed for job {job.job_id}: {exc}")
+            # Collect diagnostics for debugging
+            diagnostics = self._collect_conversion_diagnostics(job)
+            job.metadata["diagnostics"] = diagnostics
+            
+            logger.exception(
+                f"Pipeline execution failed for job {job.job_id}: {exc}",
+                extra={"diagnostics": diagnostics},
+            )
             job.status = ConversionStatus.FAILED
             job.completed_at = datetime.utcnow()
             job.error_message = str(exc)
             raise ConversionPipelineError(
-                f"Pipeline execution failed: {exc}", job.current_stage.value
+                f"Pipeline execution failed: {exc}", job.current_stage.value, diagnostics
             ) from exc
+
+    def _check_timeout(self, job: ConversionJob, timeout_seconds: int) -> None:
+        """
+        Check if job has exceeded timeout and raise error if so.
+
+        Args:
+            job: Conversion job to check
+            timeout_seconds: Maximum allowed time in seconds
+
+        Raises:
+            PipelineTimeoutError: If timeout exceeded
+        """
+        if not job.started_at:
+            return
+
+        elapsed = (datetime.utcnow() - job.started_at).total_seconds()
+        if elapsed > timeout_seconds:
+            raise PipelineTimeoutError(
+                f"Pipeline execution exceeded timeout of {timeout_seconds}s "
+                f"(elapsed: {elapsed:.1f}s)",
+                job.current_stage.value,
+                {"timeout_seconds": timeout_seconds, "elapsed_seconds": elapsed},
+            )
 
     def get_job_progress(self, job_id: str) -> ConversionProgress | None:
         """
@@ -589,7 +718,22 @@ class ConversionPipeline:
 
         except (PDFLaTeXCompilationError, FileNotFoundError) as exc:
             # Log detailed error but continue with LaTeXML-only conversion
-            logger.warning(f"Tectonic compilation failed: {exc}")
+            error_details = {
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+                "fallback_available": True,
+            }
+            
+            # Add file information if available
+            if "project_structure" in job.metadata:
+                error_details["main_tex_file"] = job.metadata["project_structure"].get(
+                    "main_tex_file"
+                )
+            
+            logger.warning(
+                f"Tectonic compilation failed: {exc}",
+                extra={"error_details": error_details},
+            )
             logger.info("Falling back to LaTeXML-only conversion")
 
             stage.status = ConversionStatus.SKIPPED
@@ -599,10 +743,12 @@ class ConversionPipeline:
             ).total_seconds()
             stage.metadata["fallback_reason"] = str(exc)
             stage.metadata["fallback_used"] = True
+            stage.metadata["error_details"] = error_details
 
             # Update job metadata for fallback
             job.metadata["tectonic_failed"] = True
             job.metadata["fallback_reason"] = str(exc)
+            job.metadata["tectonic_error"] = error_details
 
             # Validate LaTeX syntax before continuing to LaTeXML
             if "project_structure" in job.metadata:
@@ -632,6 +778,57 @@ class ConversionPipeline:
 
             # Don't raise - allow pipeline to continue with LaTeXML-only
             logger.info("Continuing with LaTeXML-only conversion")
+
+    def _collect_conversion_diagnostics(self, job: ConversionJob) -> dict[str, Any]:
+        """
+        Collect detailed diagnostics for conversion failures.
+        
+        Args:
+            job: Conversion job to analyze
+            
+        Returns:
+            Dict with diagnostic information
+        """
+        diagnostics = {
+            "job_id": job.job_id,
+            "status": job.status.value if hasattr(job.status, "value") else str(job.status),
+            "current_stage": job.current_stage.value if hasattr(job.current_stage, "value") else str(job.current_stage),
+            "error_message": job.error_message,
+        }
+        
+        # Add file information
+        if "project_structure" in job.metadata:
+            diagnostics["main_tex_file"] = job.metadata["project_structure"].get("main_tex_file")
+            diagnostics["project_dir"] = job.metadata["project_structure"].get("project_dir")
+            diagnostics["files_discovered"] = job.metadata["project_structure"].get("files_discovered", 0)
+        
+        # Add stage information
+        diagnostics["stages"] = []
+        for stage in job.stages:
+            stage_info = {
+                "name": stage.name,
+                "status": stage.status.value if hasattr(stage.status, "value") else str(stage.status),
+                "error_message": stage.error_message,
+            }
+            if "error_details" in stage.metadata:
+                stage_info["error_details"] = stage.metadata["error_details"]
+            diagnostics["stages"].append(stage_info)
+        
+        # Add timeout information
+        if "timeout_seconds" in job.metadata:
+            diagnostics["timeout_seconds"] = job.metadata["timeout_seconds"]
+            if job.started_at:
+                elapsed = (datetime.utcnow() - job.started_at).total_seconds()
+                diagnostics["elapsed_seconds"] = elapsed
+                diagnostics["timeout_remaining"] = job.metadata["timeout_seconds"] - elapsed
+        
+        # Add error information from metadata
+        if "conversion_error" in job.metadata:
+            diagnostics["conversion_error"] = job.metadata["conversion_error"]
+        if "tectonic_error" in job.metadata:
+            diagnostics["tectonic_error"] = job.metadata["tectonic_error"]
+        
+        return diagnostics
 
     def _execute_latexml_stage(self, job: ConversionJob) -> None:
         """Execute LaTeXML conversion stage with project structure support."""
@@ -684,9 +881,20 @@ class ConversionPipeline:
                 project_dir = project_structure.project_dir
 
             # Convert with LaTeXML
-            latexml_options = LaTeXMLConversionOptions(
-                **job.options.get("latexml_options", {})
-            )
+            latexml_options_dict = job.options.get("latexml_options", {})
+            
+            # Use adaptive timeout from job if not specified in options
+            if "conversion_timeout" not in latexml_options_dict:
+                job_timeout = job.metadata.get("timeout_seconds", self.default_timeout)
+                # Allocate 60% of total timeout to LaTeXML (most time-consuming stage)
+                latexml_timeout = int(job_timeout * 0.6)
+                latexml_options_dict["conversion_timeout"] = latexml_timeout
+                logger.debug(
+                    f"Using adaptive LaTeXML timeout: {latexml_timeout}s "
+                    f"(from job timeout: {job_timeout}s)"
+                )
+            
+            latexml_options = LaTeXMLConversionOptions(**latexml_options_dict)
 
             # Pass project directory for custom classes and styles
             result = self.latexml_service.convert_tex_to_html(
@@ -713,8 +921,33 @@ class ConversionPipeline:
             stage.status = ConversionStatus.FAILED
             stage.error_message = str(exc)
             stage.completed_at = datetime.utcnow()
+            
+            # Collect detailed error information for debugging
+            error_details = {
+                "error_type": getattr(exc, "error_type", "UNKNOWN_ERROR"),
+                "error_message": str(exc),
+                "details": getattr(exc, "details", {}),
+            }
+            
+            # Add file information if available
+            if "project_structure" in job.metadata:
+                error_details["main_tex_file"] = job.metadata["project_structure"].get(
+                    "main_tex_file"
+                )
+                error_details["project_dir"] = job.metadata["project_structure"].get(
+                    "project_dir"
+                )
+            
+            stage.metadata["error_details"] = error_details
+            job.metadata["conversion_error"] = error_details
+            
+            logger.error(
+                f"LaTeXML conversion failed for job {job.job_id}: {exc}",
+                extra={"error_details": error_details},
+            )
+            
             raise ConversionPipelineError(
-                f"LaTeXML conversion failed: {exc}", "latexml_conversion"
+                f"LaTeXML conversion failed: {exc}", "latexml_conversion", error_details
             ) from exc
 
     def _execute_post_processing_stage(self, job: ConversionJob) -> None:
