@@ -6,6 +6,7 @@ and enhance LaTeXML-generated HTML output.
 """
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -59,10 +60,49 @@ class HTMLPostProcessor:
         self._html_file_path: Path | None = None
         self._output_file_path: Path | None = None
         self._setup_cleaner()
+        
+        # Pre-compile regex patterns for performance optimization
+        self._compile_regex_patterns()
 
     def _setup_cleaner(self) -> None:
         """Set up HTML cleaner with appropriate settings."""
         self.cleaner = setup_cleaner()
+
+    def _compile_regex_patterns(self) -> None:
+        """Pre-compile regex patterns for performance optimization."""
+        # Year patterns
+        self.year_pattern = re.compile(r"(\d{4}[a-z]?)")
+        self.year_only_pattern = re.compile(r"^\s*\(\s*(\d{4}[a-z]?)\s*\)\s*$")
+        
+        # Author patterns for citation fixing
+        self.author_pattern_1 = re.compile(
+            r"([A-Z][a-zA-Z\s]+(?:et\s+al\.)?)\s*,\s*\(\s*\)?\s*$"
+        )
+        self.author_pattern_2 = re.compile(
+            r"([A-Z][a-zA-Z\s]+(?:et\s+al\.)?)\s*,\s*\(\s*\)"
+        )
+        self.author_pattern_3 = re.compile(
+            r"([A-Z][a-zA-Z\s]+(?:et\s+al\.)?)\s*,"
+        )
+        self.author_pattern_4 = re.compile(
+            r"([A-Z][a-zA-Z\s]+(?:et\s+al\.)?)\s*,\s*$"
+        )
+        
+        # Citation patterns
+        self.citation_pattern = re.compile(r"\([^()]{0,50}?,\s*\d{4}[a-z]?\)")
+        
+        # Table/equation patterns
+        self.equation_table_pattern = re.compile(r"ltx_equation|ltx_eqn_table")
+        self.equation_row_pattern = re.compile(r"ltx_equation|ltx_eqn_row")
+        
+        # Error/warning patterns
+        self.error_class_pattern = re.compile(r"ltx_ERROR")
+        self.overpic_warning_pattern = re.compile(
+            r"Unknown environment.*overpic", re.IGNORECASE
+        )
+        
+        # Whitespace normalization pattern (used frequently)
+        self.whitespace_pattern = re.compile(r"\s+")
 
     def process_html(
         self,
@@ -96,8 +136,10 @@ class HTMLPostProcessor:
             with open(html_file, encoding="utf-8") as f:
                 html_content = f.read()
 
-            # Parse with BeautifulSoup
-            soup = BeautifulSoup(html_content, "html.parser")
+            # Parse with BeautifulSoup - use lxml parser if available for better performance
+            # lxml is faster and more memory-efficient than html.parser
+            parser = "lxml" if html is not None else "html.parser"
+            soup = BeautifulSoup(html_content, parser)
 
             # Apply processing steps
             processing_results = {
@@ -270,26 +312,25 @@ class HTMLPostProcessor:
         # Remove yellow "Unknown environment" warnings and other LaTeXML artifacts
         self._remove_latexml_warnings(soup)
 
-        # Fix 4: Remove bold formatting from inside citations
-        # Citations should not have bold formatting
-        for cite in soup.find_all("cite"):
-            # Remove all bold spans inside citations
+        # Fix 4 & 5: Process all citations in a single pass for efficiency
+        # Collect all cite elements once to avoid multiple DOM traversals
+        all_cites = soup.find_all("cite")
+        
+        for cite in all_cites:
+            # Fix 4: Remove bold formatting from inside citations
+            # Citations should not have bold formatting
             for bold_span in cite.find_all("span", class_="ltx_font_bold"):
                 bold_span.unwrap()
                 logger.debug("Removed bold formatting from citation")
-
-        # Fix 5: Fix misplaced citation tags that wrap too much content
-        # LaTeXML sometimes puts the entire text in <cite> instead of just the citation
-        for cite in soup.find_all("cite"):
-            # Check if cite contains too much text (likely incorrect)
+            
+            # Fix 5: Fix misplaced citation tags that wrap too much content
+            # LaTeXML sometimes puts the entire text in <cite> instead of just the citation
             cite_text = cite.get_text(strip=True)
             # Citations should be relatively short (author + year, typically < 50 chars)
             if len(cite_text) > 100:
                 # This is likely wrapping too much - try to extract just the citation
                 # Look for patterns like "(Author, YYYY)" or "Author et al., YYYY"
-                citation_match = re.search(
-                    r"\([^()]{0,50}?,\s*\d{4}[a-z]?\)", cite_text
-                )
+                citation_match = self.citation_pattern.search(cite_text)
                 if citation_match:
                     # Found a likely citation - keep only that part in cite
                     citation_str = citation_match.group()
@@ -344,8 +385,13 @@ class HTMLPostProcessor:
         Desired structure: "<a>Author, (Year)</a>" - entire citation linked
         """
         # Process all cite elements, including those without class
+        # Cache get_text() results to avoid repeated DOM traversal
         for cite in soup.find_all("cite"):
+            # Cache get_text() result - it's expensive for nested elements
             cite_text = cite.get_text(strip=True)
+            # Cache normalized version to avoid repeated normalization
+            # Use pre-compiled pattern for better performance
+            full_cite_text_normalized = self.whitespace_pattern.sub(" ", cite_text)
 
             # Check if citation structure has author and year separated
             # Pattern 1: Citation has "Author, ( )" with year in a separate link
@@ -354,7 +400,7 @@ class HTMLPostProcessor:
             if year_link:
                 year_text = year_link.get_text(strip=True)
                 # Check if year is a 4-digit year or contains year pattern
-                year_match = re.search(r"(\d{4}[a-z]?)", year_text)
+                year_match = self.year_pattern.search(year_text)
                 if year_match:
                     year = year_match.group(1)
 
@@ -372,12 +418,11 @@ class HTMLPostProcessor:
                         before_link_parts
                     ).strip()  # Normalize whitespace
                     # Normalize whitespace: collapse multiple spaces/newlines
-                    before_text = re.sub(r"\s+", " ", before_text)
-                    # Also check the full cite text for author pattern
-                    full_cite_text = cite.get_text(strip=True)
-                    full_cite_text = re.sub(
-                        r"\s+", " ", full_cite_text
-                    )  # Normalize whitespace
+                    # Use pre-compiled pattern for better performance
+                    before_text = self.whitespace_pattern.sub(" ", before_text)
+                    # Use cached normalized cite text instead of calling get_text() again
+                    # This avoids expensive DOM traversal
+                    full_cite_text = full_cite_text_normalized
 
                     # Check if we have author before the year link
                     # Pattern: "Author," or "Author et al.,"
@@ -388,36 +433,25 @@ class HTMLPostProcessor:
                     # Pattern 1: "Author, ( )" or "Author, (" in before_text
                     # (handle whitespace variations)
                     # Match "Author, ( )" or "Author, (" with any whitespace
-                    author_match = re.search(
-                        r"([A-Z][a-zA-Z\s]+(?:et\s+al\.)?)\s*,\s*\(\s*\)?\s*$",
-                        before_text,
-                    )
+                    author_match = self.author_pattern_1.search(before_text)
 
                     # Pattern 2: Check full citation text for "Author, ( ) Year" pattern
                     if not author_match:
-                        full_match = re.search(
-                            r"([A-Z][a-zA-Z\s]+(?:et\s+al\.)?)\s*,\s*\(\s*\)",
-                            full_cite_text,
-                        )
+                        full_match = self.author_pattern_2.search(full_cite_text)
                         if full_match:
                             author_match = full_match
 
                     # Pattern 3: Just "Author," at the start (most permissive)
                     if not author_match:
                         # Look for any author name pattern followed by comma
-                        simple_match = re.search(
-                            r"([A-Z][a-zA-Z\s]+(?:et\s+al\.)?)\s*,", before_text
-                        )
+                        simple_match = self.author_pattern_3.search(before_text)
                         if simple_match:
                             author_match = simple_match
 
                     # Pattern 4: Check if full citation has
                     # "Author, ( )" pattern anywhere
                     if not author_match:
-                        anywhere_match = re.search(
-                            r"([A-Z][a-zA-Z\s]+(?:et\s+al\.)?)\s*,\s*\(\s*\)",
-                            full_cite_text,
-                        )
+                        anywhere_match = self.author_pattern_2.search(full_cite_text)
                         if anywhere_match:
                             author_match = anywhere_match
 
@@ -450,8 +484,7 @@ class HTMLPostProcessor:
                         )
 
             # Pattern 2: Citation only has year in parentheses (missing author)
-            year_only_pattern = re.compile(r"^\s*\(\s*(\d{4}[a-z]?)\s*\)\s*$")
-            if year_only_pattern.match(cite_text):
+            if self.year_only_pattern.match(cite_text):
                 # This citation only has the year, need to find the author
                 # Look for author name before the citation in parent
                 # or previous siblings
@@ -464,9 +497,7 @@ class HTMLPostProcessor:
                         # Look backwards for author name (typically ends with comma)
                         before_text = all_text[:cite_index].strip()
                         # Try to find author pattern: "Author," or "Author et al.,"
-                        author_match = re.search(
-                            r"([A-Z][a-zA-Z\s]+(?:et\s+al\.)?)\s*,\s*$", before_text
-                        )
+                        author_match = self.author_pattern_4.search(before_text)
                         if author_match:
                             author = author_match.group(1).strip()
                             # Reconstruct citation with author
@@ -496,10 +527,7 @@ class HTMLPostProcessor:
                                 prev_text = prev_sibling.get_text(strip=True)
                                 # Check if previous sibling ends with
                                 # author name pattern
-                                author_match = re.search(
-                                    r"([A-Z][a-zA-Z\s]+(?:et\s+al\.)?)\s*,\s*$",
-                                    prev_text,
-                                )
+                                author_match = self.author_pattern_4.search(prev_text)
                                 if author_match:
                                     author = author_match.group(1).strip()
                                     year = year_only_pattern.match(cite_text).group(1)
@@ -535,8 +563,8 @@ class HTMLPostProcessor:
                 combined_text = " ".join(
                     node.strip() for node in text_nodes if node.strip()
                 )
-                # Remove extra whitespace
-                combined_text = re.sub(r"\s+", " ", combined_text)
+                # Remove extra whitespace using pre-compiled pattern
+                combined_text = self.whitespace_pattern.sub(" ", combined_text)
 
                 # Replace text nodes with single combined text
                 for node in text_nodes:
@@ -556,7 +584,7 @@ class HTMLPostProcessor:
         """
         # Find all equation tables
         equation_tables = soup.find_all(
-            "table", class_=re.compile(r"ltx_equation|ltx_eqn_table")
+            "table", class_=self.equation_table_pattern
         )
 
         for table in equation_tables:
@@ -564,7 +592,7 @@ class HTMLPostProcessor:
             if not tbody:
                 continue
 
-            rows = tbody.find_all("tr", class_=re.compile(r"ltx_equation|ltx_eqn_row"))
+            rows = tbody.find_all("tr", class_=self.equation_row_pattern)
 
             # If there's only one row, check if it has multiple cells
             # that should be merged
@@ -750,7 +778,7 @@ class HTMLPostProcessor:
         """Remove LaTeXML warning and error messages from HTML output."""
 
         # Remove elements with ltx_ERROR class (LaTeXML errors)
-        for error_elem in soup.find_all(class_=re.compile(r"ltx_ERROR")):
+        for error_elem in soup.find_all(class_=self.error_class_pattern):
             logger.debug(f"Removing LaTeXML error: {error_elem.get_text()[:100]}")
             error_elem.decompose()
 
@@ -786,7 +814,7 @@ class HTMLPostProcessor:
         # overpic is a LaTeX package for overlaying text on images
         # When missing, replace the warning with the underlying figure if available
         for elem in soup.find_all(
-            string=re.compile(r"Unknown environment.*overpic", re.IGNORECASE)
+            string=self.overpic_warning_pattern
         ):
             parent = elem.parent
             if parent:
@@ -1202,23 +1230,67 @@ class HTMLPostProcessor:
             assets_dir = html_dir / "assets"
             assets_dir.mkdir(exist_ok=True)
 
-            # Find and convert TikZ diagrams
+            # Find all assets first
             tikz_diagrams = self._find_tikz_diagrams(soup)
-            if tikz_diagrams:
-                logger.info("Found %d TikZ diagrams to convert", len(tikz_diagrams))
-                self._convert_tikz_diagrams(tikz_diagrams, assets_dir, results)
-
-            # Find and convert PDF figures
             pdf_figures = self._find_pdf_figures(soup)
-            if pdf_figures:
-                logger.info("Found %d PDF figures to convert", len(pdf_figures))
-                self._convert_pdf_figures(pdf_figures, assets_dir, results)
-
-            # Find and convert image assets
             image_assets = self._find_image_assets(soup)
-            if image_assets:
-                logger.info("Found %d image assets to convert", len(image_assets))
-                self._convert_image_assets(image_assets, assets_dir, results)
+            
+            total_assets = len(tikz_diagrams) + len(pdf_figures) + len(image_assets)
+            
+            if total_assets == 0:
+                logger.info("No assets found to convert")
+                results["steps_completed"].append("asset_conversion_skipped")
+                return soup
+            
+            logger.info(
+                "Found %d assets to convert (%d TikZ, %d PDF, %d images)",
+                total_assets,
+                len(tikz_diagrams),
+                len(pdf_figures),
+                len(image_assets),
+            )
+            
+            # Convert assets in parallel for better performance
+            # Use ThreadPoolExecutor for I/O-bound operations (file I/O, subprocess calls)
+            # Note: Each conversion method writes to different parts of results dict,
+            # so thread safety is maintained (no overlapping keys)
+            max_workers = min(4, total_assets)  # Limit to 4 concurrent conversions
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = []
+                
+                # Submit TikZ conversions
+                if tikz_diagrams:
+                    future = executor.submit(
+                        self._convert_tikz_diagrams, tikz_diagrams, assets_dir, results
+                    )
+                    futures.append(("tikz", future))
+                
+                # Submit PDF conversions
+                if pdf_figures:
+                    future = executor.submit(
+                        self._convert_pdf_figures, pdf_figures, assets_dir, results
+                    )
+                    futures.append(("pdf", future))
+                
+                # Submit image conversions
+                if image_assets:
+                    future = executor.submit(
+                        self._convert_image_assets, image_assets, assets_dir, results
+                    )
+                    futures.append(("image", future))
+                
+                # Wait for all conversions to complete
+                for asset_type, future in futures:
+                    try:
+                        future.result(timeout=600)  # 10 minute timeout per asset type
+                        logger.debug(f"{asset_type} conversion completed")
+                    except Exception as exc:
+                        logger.error(f"{asset_type} conversion failed: {exc}")
+                        # Thread-safe: each asset type uses different dict keys
+                        if "errors" not in results:
+                            results["errors"] = []
+                        results["errors"].append(f"{asset_type} conversion error: {exc}")
 
             results["steps_completed"].append("asset_conversion")
             return soup

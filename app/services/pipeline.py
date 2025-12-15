@@ -102,6 +102,11 @@ class ConversionPipeline:
         # Active jobs tracking
         self._active_jobs: dict[str, ConversionJob] = {}
         self._job_lock = threading.RLock()  # Thread-safe access to active jobs
+        
+        # File metadata cache for timeout calculation optimization
+        # Cache: {file_path: (size, file_count, timestamp)}
+        self._file_metadata_cache: dict[str, tuple[int, int, float]] = {}
+        self._cache_ttl = 300  # 5 minutes cache TTL
 
     def _calculate_adaptive_timeout(self, input_file: Path) -> int:
         """
@@ -116,21 +121,49 @@ class ConversionPipeline:
         base_timeout = self.default_timeout
         
         try:
-            # Calculate total size of input files
-            total_size = 0
-            file_count = 0
+            import os
+            from time import time
             
-            if input_file.is_file():
-                total_size = input_file.stat().st_size
-                file_count = 1
-            elif input_file.is_dir():
-                for file_path in input_file.rglob("*"):
-                    if file_path.is_file():
-                        try:
-                            total_size += file_path.stat().st_size
-                            file_count += 1
-                        except OSError:
-                            continue
+            # Check cache first (optimization)
+            cache_key = str(input_file.resolve())
+            current_time = time()
+            
+            if cache_key in self._file_metadata_cache:
+                cached_size, cached_count, cache_time = self._file_metadata_cache[cache_key]
+                # Use cached value if still valid
+                if current_time - cache_time < self._cache_ttl:
+                    total_size = cached_size
+                    file_count = cached_count
+                    logger.debug(
+                        f"Using cached file metadata for {input_file.name} "
+                        f"(size: {total_size / (1024*1024):.1f}MB, files: {file_count})"
+                    )
+                else:
+                    # Cache expired, recalculate
+                    total_size = 0
+                    file_count = 0
+            else:
+                total_size = 0
+                file_count = 0
+            
+            # Calculate if not cached or cache expired
+            if total_size == 0 and file_count == 0:
+                if input_file.is_file():
+                    total_size = input_file.stat().st_size
+                    file_count = 1
+                elif input_file.is_dir():
+                    # Use os.walk for better performance on large directories
+                    for root, dirs, files in os.walk(input_file):
+                        for file_name in files:
+                            file_path = Path(root) / file_name
+                            try:
+                                total_size += file_path.stat().st_size
+                                file_count += 1
+                            except OSError:
+                                continue
+                
+                # Cache the result
+                self._file_metadata_cache[cache_key] = (total_size, file_count, current_time)
             
             # Adaptive timeout calculation:
             # Base: 10 minutes (600s)

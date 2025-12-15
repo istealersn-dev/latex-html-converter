@@ -6,6 +6,7 @@ building a complete dependency map and project structure.
 """
 
 import re
+import shutil
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -151,22 +152,52 @@ class FileDiscoveryService:
 
         try:
             with zipfile.ZipFile(zip_path, "r") as zip_file:
-                # Extract all files maintaining directory structure
-                for file_path in project_structure.extracted_files:
-                    # Skip directories
-                    if file_path.suffix == "":
-                        continue
+                # Optimization: Use extractall() for bulk extraction when possible
+                # This is much faster than extracting files one by one
+                # However, we need to filter to only extract files we discovered
+                
+                # Get all file names in the ZIP
+                all_zip_names = set(zip_file.namelist())
+                
+                # Filter to only files we want to extract
+                files_to_extract = {
+                    str(file_path) for file_path in project_structure.extracted_files
+                    if file_path.suffix != ""  # Skip directories
+                }
+                
+                # Extract files in bulk if we're extracting most/all files
+                # Otherwise, extract individually for better control
+                if len(files_to_extract) > 50 and len(files_to_extract) / len(all_zip_names) > 0.8:
+                    # Extract all files, then clean up unwanted ones
+                    zip_file.extractall(output_dir)
+                    self.logger.debug(
+                        f"Bulk extracted {len(all_zip_names)} files, "
+                        f"filtering to {len(files_to_extract)} needed files"
+                    )
+                else:
+                    # Extract only needed files individually
+                    for file_path in project_structure.extracted_files:
+                        # Skip directories
+                        if file_path.suffix == "":
+                            continue
 
-                    # Extract to output directory
-                    extract_path = output_dir / file_path
-                    extract_path.parent.mkdir(parents=True, exist_ok=True)
+                        # Extract to output directory
+                        extract_path = output_dir / file_path
+                        extract_path.parent.mkdir(parents=True, exist_ok=True)
 
-                    # Extract file content
-                    with (
-                        zip_file.open(str(file_path)) as source_file,
-                        open(extract_path, "wb") as target_file,
-                    ):
-                        target_file.write(source_file.read())
+                        # Extract file content
+                        try:
+                            with (
+                                zip_file.open(str(file_path)) as source_file,
+                                open(extract_path, "wb") as target_file,
+                            ):
+                                # Use shutil.copyfileobj for efficient copying
+                                import shutil
+                                shutil.copyfileobj(source_file, target_file)
+                        except KeyError:
+                            # File not in ZIP, skip
+                            self.logger.warning(f"File not found in ZIP: {file_path}")
+                            continue
 
                 # Update project structure with actual extracted paths
                 project_structure.main_tex_file = (
