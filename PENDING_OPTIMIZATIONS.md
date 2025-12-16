@@ -18,7 +18,8 @@ Based on `OPTIMIZATION_OPPORTUNITIES.md`, here's what has been completed and wha
 1. ✅ Cache file metadata
 2. ✅ Optimize string operations
 3. ✅ Switch to `lxml` parser
-4. ❌ **PENDING**: Implement caching for package checks
+4. ✅ Implement caching for package checks
+5. ✅ Optimize `_fix_equation_tables` method
 
 ---
 
@@ -219,8 +220,8 @@ Based on `OPTIMIZATION_OPPORTUNITIES.md`, here's what has been completed and wha
 
 | Optimization | Priority | Impact | Effort | Status |
 |--------------|----------|--------|--------|--------|
-| Package availability caching | Medium | High | Low | ❌ Pending |
-| Equation table optimization | Medium | Medium | Low | ❌ Pending |
+| Package availability caching | Medium | High | Low | ✅ Completed |
+| Equation table optimization | Medium | Medium | Low | ✅ Completed |
 | Multiple file reads caching | Medium | Medium | Medium | ❌ Pending |
 | Multiple DOM traversals | Medium | Medium | Medium | ❌ Pending |
 | In-memory storage (production) | High | High | High | ❌ Pending |
