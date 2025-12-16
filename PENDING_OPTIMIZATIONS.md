@@ -26,28 +26,16 @@ Based on `OPTIMIZATION_OPPORTUNITIES.md`, here's what has been completed and wha
 
 ### High Priority (Production)
 
-#### 1. Package Availability Caching - 🟡 MEDIUM
+#### 1. Package Availability Caching - ✅ COMPLETED
 **Location**: `app/services/package_manager.py` (`check_package_availability`)
 
-**Issue**: 
-- `check_package_availability()` calls `tlmgr info` for each package individually
-- Same packages checked multiple times across different conversions
-- Each check is a subprocess call (expensive)
+**Status**: ✅ Implemented
 
-**Current Code** (lines 135-175):
-```python
-def check_package_availability(self, packages: list[str]) -> dict[str, bool]:
-    for package in packages:
-        result = run_command_safely(
-            ["tlmgr", "info", "--only-installed", package], timeout=30
-        )
-        availability[package] = result.returncode == 0
-```
-
-**Optimization**:
-- Add cache dictionary: `self._package_cache: dict[str, tuple[bool, float]]`
-- Cache TTL: 5-10 minutes (packages don't change frequently)
-- Batch check multiple packages if possible
+**Changes**:
+- Added `_package_cache: dict[str, tuple[bool, float]]` with 5-minute TTL
+- Cache lookup before subprocess calls
+- Automatic cache cleanup when cache exceeds 1000 entries
+- Cache hit logging for visibility
 
 **Estimated Improvement**: 50-80% faster for repeated package checks
 
@@ -55,24 +43,16 @@ def check_package_availability(self, packages: list[str]) -> dict[str, bool]:
 
 ### Medium Priority
 
-#### 2. Optimize `_fix_equation_tables` Method - 🟡 MEDIUM
+#### 2. Optimize `_fix_equation_tables` Method - ✅ COMPLETED
 **Location**: `app/services/html_post.py` (lines 576-916)
 
-**Issue**:
-- Multiple `find_all()` calls within loops
-- Repeated element lookups
-- Could use pre-compiled patterns for class matching
+**Status**: ✅ Implemented
 
-**Current Issues**:
-- Line 586-588: `soup.find_all("table", class_=self.equation_table_pattern)` - OK (uses pre-compiled)
-- Line 595: `tbody.find_all("tr", class_=self.equation_row_pattern)` - OK (uses pre-compiled)
-- Lines 610-614: Multiple `find()` calls in loop - could cache results
-- Lines 668-673: Multiple `find_all()` calls - could combine
-
-**Optimization**:
-- Cache element lookups within loops
-- Combine multiple `find_all()` calls where possible
-- Pre-compile any remaining regex patterns
+**Changes**:
+- Cache individual `find()` results to avoid repeated DOM traversal
+- Cache `main_cell` lookup to avoid repeated `find()` calls
+- Combine multiple `find_all()` calls into single operations
+- Optimized both single-row and multi-row equation table processing
 
 **Estimated Improvement**: 20-30% faster equation table processing
 
