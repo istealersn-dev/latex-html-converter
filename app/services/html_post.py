@@ -603,15 +603,17 @@ class HTMLPostProcessor:
                 # If row has multiple cells but equation content is in one cell, merge
                 if len(cells) > 1:
                     # Find the cell with the actual equation (math element)
+                    # Optimization: Cache find() results to avoid repeated DOM traversal
                     equation_cell = None
                     for cell in cells:
                         # Check for MathML, MathJax, or math class elements
-                        if (
-                            cell.find(["math", "m:math"])
-                            or cell.find_all(["span", "div"], class_=["math", "math-display"])
-                            or cell.find("mjx-container")
-                            or cell.find("mjx-math")
-                        ):
+                        # Cache individual find() results
+                        has_mathml = cell.find(["math", "m:math"])
+                        has_mathjax_container = cell.find("mjx-container")
+                        has_mathjax_math = cell.find("mjx-math")
+                        has_math_classes = cell.find_all(["span", "div"], class_=["math", "math-display"])
+                        
+                        if has_mathml or has_math_classes or has_mathjax_container or has_mathjax_math:
                             equation_cell = cell
                             break
 
@@ -644,14 +646,16 @@ class HTMLPostProcessor:
             # If there are multiple rows, merge them into a single row
             elif len(rows) > 1:
                 # Find the row with the main equation content
+                # Optimization: Cache find() results
                 main_row = None
                 for row in rows:
-                    if (
-                        row.find(["math", "m:math"])
-                        or row.find_all(["span", "div"], class_=["math", "math-display"])
-                        or row.find("mjx-container")
-                        or row.find("mjx-math")
-                    ):
+                    # Cache individual find() results
+                    has_mathml = row.find(["math", "m:math"])
+                    has_mathjax_container = row.find("mjx-container")
+                    has_mathjax_math = row.find("mjx-math")
+                    has_math_classes = row.find_all(["span", "div"], class_=["math", "math-display"])
+                    
+                    if has_mathml or has_math_classes or has_mathjax_container or has_mathjax_math:
                         main_row = row
                         break
 
@@ -659,35 +663,44 @@ class HTMLPostProcessor:
                     # Use the first row as main
                     main_row = rows[0]
 
+                # Cache main_cell lookup to avoid repeated find() calls
+                main_cell = main_row.find("td", class_="ltx_eqn_cell")
+                if not main_cell:
+                    # Create main cell if it doesn't exist
+                    main_cell = soup.new_tag(
+                        "td", attrs={"class": "ltx_eqn_cell ltx_align_center"}
+                    )
+                    main_row.append(main_cell)
+
                 # Merge content from other rows into main row
                 for row in rows:
                     if row != main_row:
                         # Move equation content from other rows
                         for cell in row.find_all("td"):
+                            # Optimization: Combine multiple find_all() calls
                             # Find all math elements (MathML, MathJax, or math classes)
+                            mathml_elements = cell.find_all(["math", "m:math"])
+                            mjx_container_elements = cell.find_all("mjx-container")
+                            mjx_math_elements = cell.find_all("mjx-math")
+                            math_class_elements = cell.find_all(["span", "div"], class_=["math", "math-display"])
+                            
+                            # Combine all math elements
                             math_elements = (
-                                cell.find_all(["math", "m:math"])
-                                + cell.find_all("mjx-container")
-                                + cell.find_all("mjx-math")
-                                + cell.find_all(["span", "div"], class_=["math", "math-display"])
+                                mathml_elements
+                                + mjx_container_elements
+                                + mjx_math_elements
+                                + math_class_elements
                             )
+                            
                             if math_elements:
-                                # Add to main row
-                                main_cell = main_row.find("td", class_="ltx_eqn_cell")
-                                if not main_cell:
-                                    # Create main cell if it doesn't exist
-                                    main_cell = soup.new_tag(
-                                        "td", attrs={"class": "ltx_eqn_cell ltx_align_center"}
-                                    )
-                                    main_row.append(main_cell)
+                                # Add to main row (main_cell already cached)
                                 for math_elem in math_elements:
                                     main_cell.append(math_elem)
+                            
                             # Move any other content too
                             for content in list(cell.children):
                                 if content not in math_elements:
-                                    main_cell = main_row.find("td", class_="ltx_eqn_cell")
-                                    if main_cell:
-                                        main_cell.append(content)
+                                    main_cell.append(content)
                             cell.decompose()
                         row.decompose()
 

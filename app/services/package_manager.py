@@ -8,6 +8,7 @@ their installation using tlmgr (TeX Live Manager).
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from time import time
 from typing import Any
 
 from app.utils.shell import run_command_safely
@@ -92,6 +93,11 @@ class PackageManagerService:
         self.document_class_pattern = re.compile(
             r"\\documentclass(?:\[[^\]]*\])?\{([^}]+)\}"
         )
+        
+        # Package availability cache: {package_name: (is_available, timestamp)}
+        # Cache TTL: 5 minutes (packages don't change frequently)
+        self._package_cache: dict[str, tuple[bool, float]] = {}
+        self._cache_ttl = 300  # 5 minutes
 
     def detect_required_packages(self, tex_file: Path) -> list[str]:
         """
@@ -135,6 +141,8 @@ class PackageManagerService:
     def check_package_availability(self, packages: list[str]) -> dict[str, bool]:
         """
         Check which packages are available in current TeX installation.
+        
+        Uses caching to avoid repeated subprocess calls for the same packages.
 
         Args:
             packages: List of package names to check
@@ -152,27 +160,81 @@ class PackageManagerService:
 
         self.logger.info(f"Checking availability of {len(packages)} packages")
 
+        current_time = time()
         availability = {}
+        packages_to_check = []
 
+        # Check cache first
         for package in packages:
-            try:
-                # Try to check if package is available using tlmgr
-                result = run_command_safely(
-                    ["tlmgr", "info", "--only-installed", package], timeout=30
-                )
-                availability[package] = result.returncode == 0
+            if package in self._package_cache:
+                cached_available, cache_time = self._package_cache[package]
+                # Use cached value if still valid
+                if current_time - cache_time < self._cache_ttl:
+                    availability[package] = cached_available
+                    self.logger.debug(f"Using cached availability for {package}: {cached_available}")
+                else:
+                    # Cache expired, need to check
+                    packages_to_check.append(package)
+            else:
+                # Not in cache, need to check
+                packages_to_check.append(package)
 
-            except FileNotFoundError:
-                # tlmgr not found - silently mark as unavailable
-                availability[package] = False
-            except Exception as e:
-                self.logger.debug(f"Error checking package {package}: {e}")
-                availability[package] = False
+        # Check packages not in cache or with expired cache
+        if packages_to_check:
+            self.logger.debug(f"Checking {len(packages_to_check)} packages (cache miss/expired)")
+            
+            for package in packages_to_check:
+                try:
+                    # Try to check if package is available using tlmgr
+                    result = run_command_safely(
+                        ["tlmgr", "info", "--only-installed", package], timeout=30
+                    )
+                    is_available = result.returncode == 0
+                    availability[package] = is_available
+                    
+                    # Update cache
+                    self._package_cache[package] = (is_available, current_time)
+                    
+                except FileNotFoundError:
+                    # tlmgr not found - silently mark as unavailable
+                    availability[package] = False
+                    self._package_cache[package] = (False, current_time)
+                except Exception as e:
+                    self.logger.debug(f"Error checking package {package}: {e}")
+                    availability[package] = False
+                    self._package_cache[package] = (False, current_time)
+
+        # Clean up expired cache entries (optional, prevents unbounded growth)
+        if len(self._package_cache) > 1000:
+            self._cleanup_cache(current_time)
 
         available_count = sum(1 for available in availability.values() if available)
-        self.logger.info(f"Found {available_count}/{len(packages)} packages available")
+        cached_count = len(packages) - len(packages_to_check)
+        self.logger.info(
+            f"Found {available_count}/{len(packages)} packages available "
+            f"({cached_count} from cache, {len(packages_to_check)} checked)"
+        )
 
         return availability
+    
+    def _cleanup_cache(self, current_time: float) -> None:
+        """
+        Remove expired cache entries to prevent unbounded growth.
+        
+        Args:
+            current_time: Current timestamp
+        """
+        expired_packages = [
+            package
+            for package, (_, cache_time) in self._package_cache.items()
+            if current_time - cache_time >= self._cache_ttl
+        ]
+        
+        for package in expired_packages:
+            del self._package_cache[package]
+        
+        if expired_packages:
+            self.logger.debug(f"Cleaned up {len(expired_packages)} expired cache entries")
 
     def install_missing_packages(self, packages: list[str]) -> InstallResult:
         """
