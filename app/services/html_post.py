@@ -1273,6 +1273,10 @@ class HTMLPostProcessor:
             summary_p.string = "Content analysis completed."
         verification_div.append(summary_p)
 
+        # Create buttons container
+        buttons_div = soup.new_tag("div")
+        buttons_div["style"] = "display: flex; gap: 10px; flex-wrap: wrap;"
+
         # Create details toggle button
         details_btn = soup.new_tag("button", attrs={
             "onclick": "document.getElementById('verification-details').style.display = "
@@ -1291,7 +1295,10 @@ class HTMLPostProcessor:
             "transition: all 0.2s;"
         )
         details_btn.string = "📊 View Detailed Breakdown"
-        verification_div.append(details_btn)
+        buttons_div.append(details_btn)
+
+        # Note: Diff report button is added later in the pipeline after report generation
+        verification_div.append(buttons_div)
 
         # Create collapsible details section
         details_div = soup.new_tag("div", attrs={"id": "verification-details"})
