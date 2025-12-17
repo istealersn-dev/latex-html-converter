@@ -26,6 +26,7 @@ from app.models.conversion import (
     PipelineStage,
 )
 from app.services.assets import AssetConversionService
+from app.services.content_verification import ContentVerificationService
 from app.services.file_discovery import (
     FileDiscoveryService,
     LatexDependencies,
@@ -92,6 +93,7 @@ class ConversionPipeline:
 
         self.file_discovery = file_discovery or FileDiscoveryService()
         self.package_manager = package_manager or PackageManagerService()
+        self.content_verification = ContentVerificationService()
 
         # Pipeline configuration
         self.max_concurrent_jobs = 5
@@ -1065,8 +1067,53 @@ class ConversionPipeline:
                 job.output_dir.glob("*.png")
             )
 
-            # Calculate quality score (simplified)
-            job.quality_score = self._calculate_quality_score(job)
+            # Run content verification to compare source LaTeX vs HTML output
+            main_tex_file = self._find_main_tex_file(job)
+            if main_tex_file and main_tex_file.exists():
+                logger.info("Running content verification...")
+                try:
+                    verification_report = self.content_verification.verify_content_preservation(
+                        latex_file=main_tex_file,
+                        html_file=output_file,
+                    )
+
+                    # Store verification report in metadata
+                    verification_summary = self.content_verification.generate_verification_summary(
+                        verification_report
+                    )
+                    stage.metadata["content_verification"] = verification_summary
+                    job.metadata["content_verification"] = verification_summary
+
+                    # Use verification score as quality score (more accurate than simplified scoring)
+                    job.quality_score = verification_report.preservation_score
+
+                    logger.info(
+                        f"Content verification complete: {verification_report.preservation_score:.1f}% "
+                        f"({verification_report.quality_assessment})"
+                    )
+
+                    # Add warnings for missing/altered content
+                    if verification_report.missing_content:
+                        stage.metadata.setdefault("warnings", []).extend([
+                            f"Missing content: {item}" for item in verification_report.missing_content
+                        ])
+                    if verification_report.altered_content:
+                        stage.metadata.setdefault("warnings", []).extend([
+                            f"Altered content: {item}" for item in verification_report.altered_content
+                        ])
+
+                except Exception as exc:
+                    logger.warning(f"Content verification failed: {exc}")
+                    # Don't fail the entire conversion if verification fails
+                    stage.metadata.setdefault("warnings", []).append(
+                        f"Content verification failed: {exc}"
+                    )
+                    # Fall back to simplified quality score
+                    job.quality_score = self._calculate_quality_score(job)
+            else:
+                logger.warning("Main .tex file not found, skipping content verification")
+                # Use simplified quality score as fallback
+                job.quality_score = self._calculate_quality_score(job)
 
             # Update stage
             stage.status = ConversionStatus.COMPLETED
@@ -1167,6 +1214,34 @@ class ConversionPipeline:
                 f"Failed to copy project assets: {exc}"
             )
             # Don't fail the conversion if asset copying fails
+
+    def _find_main_tex_file(self, job: ConversionJob) -> Path | None:
+        """Find the main .tex file from job metadata or input file."""
+        # Try to get from project structure metadata
+        if "project_structure" in job.metadata:
+            main_tex = job.metadata["project_structure"].get("main_tex_file")
+            if main_tex:
+                return Path(main_tex)
+
+        # If input file is a .tex file, use that
+        if job.input_file.suffix == ".tex":
+            return job.input_file
+
+        # Search for .tex files in the project directory
+        project_dir = job.input_file.parent if job.input_file.is_file() else job.input_file
+        tex_files = list(project_dir.glob("*.tex"))
+
+        if tex_files:
+            # Prefer files named main.tex, document.tex, etc.
+            for preferred_name in ["main.tex", "document.tex", "paper.tex", "manuscript.tex"]:
+                for tex_file in tex_files:
+                    if tex_file.name.lower() == preferred_name:
+                        return tex_file
+
+            # Return the first .tex file found
+            return tex_files[0]
+
+        return None
 
     def _calculate_quality_score(self, job: ConversionJob) -> float:
         """Calculate quality score for the conversion."""

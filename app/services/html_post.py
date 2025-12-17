@@ -166,7 +166,10 @@ class HTMLPostProcessor:
             # Step 5: Optimize HTML
             optimized_soup = optimize_html(enhanced_soup, processing_results)
 
-            # Step 6: Add conversion warnings summary banner (if any warnings exist)
+            # Step 6: Add content verification report (if verification data exists)
+            self._add_content_verification_report(optimized_soup, processing_results)
+
+            # Step 7: Add conversion warnings summary banner (if any warnings exist)
             self._add_conversion_warnings_summary(optimized_soup, processing_results)
 
             # Generate output
@@ -1194,6 +1197,226 @@ class HTMLPostProcessor:
                 },
             )
             head.append(viewport_meta)
+
+    def _add_content_verification_report(self, soup: BeautifulSoup, results: dict[str, Any]) -> None:
+        """
+        Add content verification report banner to show content preservation metrics.
+
+        Args:
+            soup: BeautifulSoup object
+            results: Processing results containing verification data
+        """
+        # Check if content verification data exists
+        verification = results.get("content_verification")
+        if not verification:
+            return  # No verification data available
+
+        body = soup.find("body")
+        if not body:
+            return
+
+        # Determine quality color based on overall score
+        score = verification.get("overall_score", 0)
+        if score >= 95:
+            bg_gradient = "linear-gradient(135deg, #11998e 0%, #38ef7d 100%)"  # Green
+            quality_emoji = "✅"
+        elif score >= 85:
+            bg_gradient = "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)"  # Blue
+            quality_emoji = "✓"
+        elif score >= 70:
+            bg_gradient = "linear-gradient(135deg, #fa709a 0%, #fee140 100%)"  # Yellow/Pink
+            quality_emoji = "⚠️"
+        else:
+            bg_gradient = "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)"  # Red
+            quality_emoji = "❌"
+
+        # Create verification report container
+        verification_div = soup.new_tag("div", attrs={
+            "id": "content-verification-report",
+            "class": "verification-report"
+        })
+        verification_div["style"] = (
+            f"background: {bg_gradient}; "
+            "color: white; "
+            "padding: 20px; "
+            "margin: 0 0 20px 0; "
+            "border-radius: 8px; "
+            "box-shadow: 0 4px 6px rgba(0,0,0,0.1); "
+            "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"
+        )
+
+        # Create header with score
+        header = soup.new_tag("h2")
+        header["style"] = "margin: 0 0 12px 0; font-size: 1.6em; font-weight: 600;"
+        quality_label = verification.get("quality", "good").upper()
+        header.string = f"{quality_emoji} Content Preservation: {score:.1f}% ({quality_label})"
+        verification_div.append(header)
+
+        # Create summary paragraph
+        summary_p = soup.new_tag("p")
+        summary_p["style"] = "margin: 0 0 16px 0; font-size: 1em; opacity: 0.95; line-height: 1.5;"
+        breakdown = verification.get("breakdown", {})
+
+        # Build summary text
+        summary_parts = []
+        for content_type, metrics in breakdown.items():
+            if content_type == "words":
+                continue  # Skip words for summary (too detailed)
+            source_count = metrics.get("source", 0)
+            if source_count > 0:
+                preserved_pct = metrics.get("preserved", "0%")
+                summary_parts.append(f"{content_type}: {preserved_pct}")
+
+        if summary_parts:
+            summary_p.string = " • ".join(summary_parts)
+        else:
+            summary_p.string = "Content analysis completed."
+        verification_div.append(summary_p)
+
+        # Create details toggle button
+        details_btn = soup.new_tag("button", attrs={
+            "onclick": "document.getElementById('verification-details').style.display = "
+                      "document.getElementById('verification-details').style.display === 'none' ? 'block' : 'none'",
+            "class": "verification-toggle-btn"
+        })
+        details_btn["style"] = (
+            "background: rgba(255,255,255,0.2); "
+            "border: 1px solid rgba(255,255,255,0.3); "
+            "color: white; "
+            "padding: 8px 16px; "
+            "border-radius: 4px; "
+            "cursor: pointer; "
+            "font-size: 0.9em; "
+            "font-weight: 500; "
+            "transition: all 0.2s;"
+        )
+        details_btn.string = "📊 View Detailed Breakdown"
+        verification_div.append(details_btn)
+
+        # Create collapsible details section
+        details_div = soup.new_tag("div", attrs={"id": "verification-details"})
+        details_div["style"] = (
+            "display: none; "
+            "margin-top: 16px; "
+            "padding-top: 16px; "
+            "border-top: 1px solid rgba(255,255,255,0.2);"
+        )
+
+        # Add breakdown table
+        table = soup.new_tag("table")
+        table["style"] = (
+            "width: 100%; "
+            "border-collapse: collapse; "
+            "margin: 8px 0;"
+        )
+
+        # Table header
+        thead = soup.new_tag("thead")
+        tr = soup.new_tag("tr")
+        for header_text in ["Content Type", "Source", "Output", "Preserved"]:
+            th = soup.new_tag("th")
+            th["style"] = (
+                "text-align: left; "
+                "padding: 8px; "
+                "border-bottom: 2px solid rgba(255,255,255,0.3); "
+                "font-weight: 600;"
+            )
+            th.string = header_text
+            tr.append(th)
+        thead.append(tr)
+        table.append(thead)
+
+        # Table body
+        tbody = soup.new_tag("tbody")
+        for content_type, metrics in breakdown.items():
+            tr = soup.new_tag("tr")
+            tr["style"] = "border-bottom: 1px solid rgba(255,255,255,0.1);"
+
+            # Content type cell
+            td_type = soup.new_tag("td")
+            td_type["style"] = "padding: 8px; text-transform: capitalize;"
+            td_type.string = content_type.replace("_", " ")
+            tr.append(td_type)
+
+            # Source count cell
+            td_source = soup.new_tag("td")
+            td_source["style"] = "padding: 8px;"
+            td_source.string = str(metrics.get("source", 0))
+            tr.append(td_source)
+
+            # Output count cell
+            td_output = soup.new_tag("td")
+            td_output["style"] = "padding: 8px;"
+            td_output.string = str(metrics.get("output", 0))
+            tr.append(td_output)
+
+            # Preserved percentage cell
+            td_preserved = soup.new_tag("td")
+            td_preserved["style"] = "padding: 8px; font-weight: 600;"
+            preserved_str = metrics.get("preserved", "0%")
+            td_preserved.string = preserved_str
+            tr.append(td_preserved)
+
+            tbody.append(tr)
+        table.append(tbody)
+        details_div.append(table)
+
+        # Add missing/altered content if present
+        missing = verification.get("missing_content", [])
+        altered = verification.get("altered_content", [])
+
+        if missing or altered:
+            issues_header = soup.new_tag("h3")
+            issues_header["style"] = "margin: 16px 0 8px 0; font-size: 1.1em; font-weight: 500;"
+            issues_header.string = "Content Issues"
+            details_div.append(issues_header)
+
+            if missing:
+                missing_header = soup.new_tag("div")
+                missing_header["style"] = "margin: 8px 0 4px 0; font-weight: 600;"
+                missing_header.string = "Missing Content:"
+                details_div.append(missing_header)
+
+                for item in missing:
+                    item_div = soup.new_tag("div")
+                    item_div["style"] = (
+                        "background: rgba(255,255,255,0.1); "
+                        "padding: 6px 10px; "
+                        "margin: 2px 0; "
+                        "border-radius: 4px; "
+                        "font-size: 0.9em;"
+                    )
+                    item_div.string = f"• {item}"
+                    details_div.append(item_div)
+
+            if altered:
+                altered_header = soup.new_tag("div")
+                altered_header["style"] = "margin: 12px 0 4px 0; font-weight: 600;"
+                altered_header.string = "Altered Content:"
+                details_div.append(altered_header)
+
+                for item in altered:
+                    item_div = soup.new_tag("div")
+                    item_div["style"] = (
+                        "background: rgba(255,255,255,0.1); "
+                        "padding: 6px 10px; "
+                        "margin: 2px 0; "
+                        "border-radius: 4px; "
+                        "font-size: 0.9em;"
+                    )
+                    item_div.string = f"• {item}"
+                    details_div.append(item_div)
+
+        verification_div.append(details_div)
+
+        # Insert after the warnings banner (if exists) or at beginning of body
+        warnings_banner = soup.find(id="conversion-warnings-summary")
+        if warnings_banner:
+            warnings_banner.insert_after(verification_div)
+        else:
+            body.insert(0, verification_div)
+
+        logger.info(f"Added content verification report: {score:.1f}% preservation")
 
     def _add_conversion_warnings_summary(self, soup: BeautifulSoup, results: dict[str, Any]) -> None:
         """
