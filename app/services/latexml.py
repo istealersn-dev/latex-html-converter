@@ -175,6 +175,18 @@ class LaTeXMLService:
                     subdir_path = project_dir / subdir
                     if subdir_path.exists():
                         cmd.extend(["--path", str(subdir_path)])
+                
+                # Also add all parent directories up to 2 levels to ensure class files are found
+                # This helps when class files are in subdirectories
+                current_dir = project_dir
+                for _ in range(2):
+                    if current_dir.parent.exists() and current_dir.parent != current_dir:
+                        parent_path = str(current_dir.parent)
+                        if parent_path not in cmd:  # Avoid duplicates
+                            cmd.extend(["--path", parent_path])
+                        current_dir = current_dir.parent
+                    else:
+                        break
 
                 logger.info("Added project directory paths: %s", project_dir)
 

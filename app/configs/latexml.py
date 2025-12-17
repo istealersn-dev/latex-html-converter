@@ -115,8 +115,8 @@ class LaTeXMLSettings(BaseSettings):
         """Validate conversion timeout."""
         if v <= 0:
             raise ValueError("Conversion timeout must be positive")
-        if v > 3600:  # 1 hour max
-            raise ValueError("Conversion timeout cannot exceed 1 hour")
+        if v > 14400:  # 4 hours max (for files up to 100MB)
+            raise ValueError("Conversion timeout cannot exceed 4 hours")
         return v
 
     @field_validator("max_file_size")
@@ -251,6 +251,9 @@ class LaTeXMLConversionOptions(BaseModel):
     custom_postamble: str | None = Field(
         default=None, description="Custom postamble content"
     )
+    conversion_timeout: int | None = Field(
+        default=None, description="Conversion timeout in seconds (overrides default)"
+    )
 
     @field_validator("output_format")
     @classmethod
@@ -261,17 +264,32 @@ class LaTeXMLConversionOptions(BaseModel):
             raise ValueError(f"Output format must be one of: {allowed}")
         return v.lower()
 
+    @field_validator("conversion_timeout")
+    @classmethod
+    def validate_timeout(cls, v: int | None) -> int | None:
+        """Validate conversion timeout."""
+        if v is not None:
+            if v <= 0:
+                raise ValueError("Conversion timeout must be positive")
+            if v > 3600:  # 1 hour max
+                raise ValueError("Conversion timeout cannot exceed 1 hour")
+        return v
+
     def to_latexml_settings(self) -> LaTeXMLSettings:
         """Convert to LaTeXMLSettings."""
-        return LaTeXMLSettings(
-            output_format=self.output_format,
-            include_mathml=self.include_mathml,
-            include_css=self.include_css,
-            include_javascript=self.include_javascript,
-            strict_mode=self.strict_mode,
-            verbose_output=self.verbose,
-            preload_modules=self.preload_modules,
-        )
+        settings_dict = {
+            "output_format": self.output_format,
+            "include_mathml": self.include_mathml,
+            "include_css": self.include_css,
+            "include_javascript": self.include_javascript,
+            "strict_mode": self.strict_mode,
+            "verbose_output": self.verbose,
+            "preload_modules": self.preload_modules,
+        }
+        # Include conversion_timeout if provided
+        if self.conversion_timeout is not None:
+            settings_dict["conversion_timeout"] = self.conversion_timeout
+        return LaTeXMLSettings(**settings_dict)
 
 
 # Default settings instance

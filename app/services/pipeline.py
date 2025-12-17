@@ -32,6 +32,7 @@ from app.services.file_discovery import (
     ProjectStructure,
 )
 from app.services.html_post import HTMLPostProcessingError, HTMLPostProcessor
+from app.services.latex_preprocessor import LaTeXPreprocessor
 from app.services.latexml import LaTeXMLError, LaTeXMLService
 from app.services.package_manager import PackageManagerService
 from app.services.pdflatex import PDFLaTeXCompilationError, PDFLaTeXService
@@ -92,11 +93,12 @@ class ConversionPipeline:
 
         self.file_discovery = file_discovery or FileDiscoveryService()
         self.package_manager = package_manager or PackageManagerService()
+        self.latex_preprocessor = LaTeXPreprocessor()
 
         # Pipeline configuration
         self.max_concurrent_jobs = 5
         self.default_timeout = 600  # 10 minutes
-        self.max_timeout = 1800  # 30 minutes maximum
+        self.max_timeout = 14400  # 4 hours maximum (for very large files up to 100MB)
         self.cleanup_delay = 3600  # 1 hour
 
         # Active jobs tracking
@@ -165,27 +167,31 @@ class ConversionPipeline:
                 # Cache the result
                 self._file_metadata_cache[cache_key] = (total_size, file_count, current_time)
             
-            # Adaptive timeout calculation:
+            # Adaptive timeout calculation for files up to 100MB:
             # Base: 10 minutes (600s)
-            # + 1 second per MB for files up to 50MB
-            # + 2 seconds per MB for files 50-100MB
-            # + 5 seconds per MB for files > 100MB
-            # + 0.1 seconds per file (complexity factor)
+            # + 30 seconds per MB for files up to 20MB
+            # + 60 seconds per MB for files 20-50MB  
+            # + 90 seconds per MB for files 50-100MB
+            # + 1 second per file (complexity factor)
+            # This ensures 100MB files get ~2.5 hours, with max of 4 hours
             
             size_mb = total_size / (1024 * 1024)
             
-            if size_mb <= 50:
-                size_factor = size_mb * 1  # 1 second per MB
+            if size_mb <= 20:
+                size_factor = size_mb * 30  # 30 seconds per MB
+            elif size_mb <= 50:
+                size_factor = 600 + (size_mb - 20) * 60  # 60 seconds per MB above 20MB
             elif size_mb <= 100:
-                size_factor = 50 + (size_mb - 50) * 2  # 2 seconds per MB above 50MB
+                size_factor = 2400 + (size_mb - 50) * 90  # 90 seconds per MB above 50MB
             else:
-                size_factor = 150 + (size_mb - 100) * 5  # 5 seconds per MB above 100MB
+                # For files > 100MB, use maximum timeout (4 hours)
+                size_factor = 6900  # ~2 hours base for 100MB+ files
             
-            file_factor = file_count * 0.1  # 0.1 seconds per file
+            file_factor = file_count * 1.0  # 1 second per file
             
             calculated_timeout = int(base_timeout + size_factor + file_factor)
             
-            # Cap at maximum timeout
+            # Cap at maximum timeout (4 hours for very large/complex files up to 100MB)
             timeout = min(calculated_timeout, self.max_timeout)
             
             logger.debug(
@@ -297,6 +303,16 @@ class ConversionPipeline:
             ConversionPipelineError: If pipeline execution fails
             PipelineTimeoutError: If pipeline execution exceeds timeout
         """
+        # Ensure job is in active_jobs for progress tracking
+        # This is important because the job might be passed from orchestrator
+        # but not yet in _active_jobs, or it might have been removed
+        with self._job_lock:
+            if job.job_id not in self._active_jobs:
+                self._active_jobs[job.job_id] = job
+                logger.info(f"Added job {job.job_id} to _active_jobs for progress tracking")
+            else:
+                logger.debug(f"Job {job.job_id} already in _active_jobs")
+        
         job.status = ConversionStatus.RUNNING
         job.started_at = datetime.utcnow()
 
@@ -408,9 +424,55 @@ class ConversionPipeline:
         completed_stages = sum(
             1 for stage in job.stages if stage.status == ConversionStatus.COMPLETED
         )
-        progress_percentage = (
+        
+        # Calculate base progress from completed stages
+        base_progress = (
             (completed_stages / total_stages * 100) if total_stages > 0 else 0.0
         )
+        
+        # Estimate progress for currently running stage based on elapsed time
+        current_stage_progress = 0.0
+        if job.stages:
+            current_stage = job.stages[-1]
+            if current_stage.status == ConversionStatus.RUNNING:
+                # Estimate progress based on elapsed time vs expected duration
+                if current_stage.started_at:
+                    stage_elapsed = (
+                        datetime.utcnow() - current_stage.started_at
+                    ).total_seconds()
+                    
+                    # Get timeout for current stage from job metadata
+                    job_timeout = job.metadata.get("timeout_seconds", self.default_timeout)
+                    
+                    # Estimate stage timeout based on stage type
+                    if current_stage.name == "LaTeXML Conversion":
+                        # LaTeXML gets 70% of total timeout
+                        stage_timeout = job_timeout * 0.7
+                    elif current_stage.name == "Tectonic Compilation":
+                        # Tectonic gets 20% of total timeout
+                        stage_timeout = job_timeout * 0.2
+                    elif current_stage.name == "HTML Post-Processing":
+                        # HTML post-processing gets 5% of total timeout
+                        stage_timeout = job_timeout * 0.05
+                    else:
+                        # Other stages get 5% of total timeout
+                        stage_timeout = job_timeout * 0.05
+                    
+                    # Estimate progress: min(95%, elapsed / expected * 100)
+                    # Cap at 95% to avoid showing 100% before completion
+                    if stage_timeout > 0:
+                        estimated_progress = min(95.0, (stage_elapsed / stage_timeout) * 100)
+                        current_stage_progress = max(0.0, estimated_progress)
+                    else:
+                        current_stage_progress = 0.0
+                else:
+                    current_stage_progress = current_stage.progress_percentage
+            else:
+                current_stage_progress = current_stage.progress_percentage
+        
+        # Overall progress = base progress + (current stage progress / total stages)
+        progress_percentage = base_progress + (current_stage_progress / total_stages) if total_stages > 0 else 0.0
+        progress_percentage = min(99.0, progress_percentage)  # Cap at 99% until fully complete
 
         # Calculate elapsed time
         elapsed_seconds = None
@@ -422,9 +484,7 @@ class ConversionPipeline:
             status=job.status,
             current_stage=job.current_stage,
             progress_percentage=progress_percentage,
-            current_stage_progress=job.stages[-1].progress_percentage
-            if job.stages
-            else 0.0,
+            current_stage_progress=current_stage_progress,
             stages_completed=completed_stages,
             total_stages=total_stages,
             elapsed_seconds=elapsed_seconds,
@@ -913,23 +973,55 @@ class ConversionPipeline:
                 tex_file = project_structure.main_tex_file
                 project_dir = project_structure.project_dir
 
+            # Detect custom document class and find supporting files
+            custom_class_info = None
+            try:
+                custom_class_info = self.latex_preprocessor.detect_custom_class(
+                    tex_file, project_dir
+                )
+                if custom_class_info:
+                    logger.info(
+                        f"Detected custom class '{custom_class_info['class_name']}', "
+                        f"class file: {custom_class_info.get('cls_file')}"
+                    )
+                    # Add class file directory to project_dir paths if found
+                    if custom_class_info.get("cls_file"):
+                        cls_file_dir = custom_class_info["cls_file"].parent
+                        if cls_file_dir not in [Path(d) for d in custom_class_info.get("search_dirs", [])]:
+                            # Ensure this directory is in the path for LaTeXML
+                            if project_dir != cls_file_dir:
+                                logger.info(
+                                    f"Adding class file directory to search path: {cls_file_dir}"
+                                )
+            except Exception as preprocess_exc:
+                logger.warning(
+                    f"Custom class detection failed: {preprocess_exc}"
+                )
+
             # Convert with LaTeXML
             latexml_options_dict = job.options.get("latexml_options", {})
+            
+            # If custom class detected, ensure its directory is in the path
+            # LaTeXML should be able to find and use the class file via --path
+            # We don't need to replace the class - just make sure LaTeXML can find it
             
             # Use adaptive timeout from job if not specified in options
             if "conversion_timeout" not in latexml_options_dict:
                 job_timeout = job.metadata.get("timeout_seconds", self.default_timeout)
-                # Allocate 60% of total timeout to LaTeXML (most time-consuming stage)
-                latexml_timeout = int(job_timeout * 0.6)
+                # Allocate 70% of total timeout to LaTeXML (most time-consuming stage)
+                # Increased from 60% to 70% for better handling of large files
+                latexml_timeout = int(job_timeout * 0.7)
                 latexml_options_dict["conversion_timeout"] = latexml_timeout
-                logger.debug(
+                logger.info(
                     f"Using adaptive LaTeXML timeout: {latexml_timeout}s "
-                    f"(from job timeout: {job_timeout}s)"
+                    f"(from job timeout: {job_timeout}s, max: {self.max_timeout * 0.7:.0f}s)"
                 )
             
             latexml_options = LaTeXMLConversionOptions(**latexml_options_dict)
 
             # Pass project directory for custom classes and styles
+            # If custom class detected, ensure its directory is accessible
+            # The --path option in LaTeXML should allow it to find the class file
             result = self.latexml_service.convert_tex_to_html(
                 input_file=tex_file,
                 output_dir=job.output_dir / "latexml",
@@ -945,6 +1037,10 @@ class ConversionPipeline:
             ).total_seconds()
             stage.progress_percentage = 100.0
             stage.metadata.update(result)
+            
+            # Store custom class info in metadata if detected
+            if custom_class_info:
+                stage.metadata["custom_class"] = custom_class_info
 
             job.current_stage = ConversionStage.LATEXML_COMPLETED
 
