@@ -21,9 +21,15 @@ from app.config import settings
 from app.models.conversion import ConversionOptions
 from app.models.conversion import ConversionStatus as ConversionStatusEnum
 from app.models.response import (
+    ContentMetrics,
+    ContentVerificationMetrics,
     ConversionResponse,
     ConversionStatus,
     ConversionStatusResponse,
+    ConversionSummaryResponse,
+    ConversionWarning,
+    DiffReportSummary,
+    SectionDiffSummary,
 )
 from app.services.orchestrator import (
     OrchestrationError,
@@ -811,6 +817,264 @@ async def get_conversion_result(conversion_id: str) -> ConversionResponse:
         logger.error(f"Failed to get conversion result for {conversion_id}: {exc}")
         raise HTTPException(
             status_code=500, detail=f"Failed to get conversion result: {str(exc)}"
+        ) from exc
+
+
+@router.get("/convert/{conversion_id}/summary", response_model=ConversionSummaryResponse)
+async def get_conversion_summary(conversion_id: str) -> ConversionSummaryResponse:
+    """
+    Get a UI-friendly summary of the conversion job.
+
+    This endpoint provides a comprehensive summary optimized for UI display,
+    including warnings, content verification metrics, and diff report summaries.
+
+    Args:
+        conversion_id: Unique conversion identifier
+
+    Returns:
+        ConversionSummaryResponse: UI-friendly conversion summary
+
+    Raises:
+        HTTPException: 404 if conversion not found, 500 on error
+    """
+    try:
+        orchestrator = get_orchestrator()
+
+        # Get job status
+        status = orchestrator.get_job_status(conversion_id)
+        if not status:
+            raise HTTPException(status_code=404, detail="Conversion not found")
+
+        # Get conversion result
+        result = orchestrator.get_job_result(conversion_id)
+
+        # Get conversion data from storage
+        conversion_data = _safe_get_conversion(conversion_id)
+        output_dir = None
+        if conversion_data and "output_dir" in conversion_data:
+            output_dir = Path(conversion_data["output_dir"])
+
+        # Initialize response data
+        created_at = datetime.utcnow()
+        completed_at = None
+        conversion_time = None
+        quality_score = None
+        quality_assessment = None
+        html_file_path = None
+        asset_count = 0
+        packages_used = []
+        stages_completed = []
+        error_message = None
+
+        # Extract basic information
+        if result:
+            created_at = getattr(result, "created_at", datetime.utcnow())
+            if not isinstance(created_at, datetime):
+                created_at = datetime.utcnow()
+
+            completed_at = getattr(result, "completed_at", None)
+            if not isinstance(completed_at, datetime) and completed_at is not None:
+                completed_at = None
+
+            conversion_time = getattr(result, "total_duration_seconds", None)
+            quality_score = getattr(result, "quality_score", None)
+            stages_completed = getattr(result, "stages_completed", [])
+
+            # Get HTML file
+            main_html = getattr(result, "main_html_file", None)
+            if (
+                main_html is not None
+                and isinstance(main_html, Path)
+                and main_html.exists()
+            ):
+                html_file_path = str(main_html)
+            elif output_dir:
+                final_html = output_dir / "final.html"
+                if final_html.exists():
+                    html_file_path = str(final_html)
+
+            # Get asset count
+            if result.assets:
+                asset_count = len([asset for asset in result.assets if asset.exists()])
+
+            # Get error message if failed
+            if status == ConversionStatusEnum.FAILED:
+                errors = getattr(result, "errors", [])
+                if errors:
+                    error_message = "; ".join(errors)
+
+        # Extract metadata
+        metadata_dict = getattr(result, "metadata", {}) if result else {}
+        if not isinstance(metadata_dict, dict):
+            metadata_dict = {}
+
+        # Extract conversion warnings
+        warnings_list = []
+        warnings_by_severity = {"high": 0, "medium": 0, "low": 0}
+        total_warnings = 0
+
+        conversion_warnings = metadata_dict.get("conversion_warnings", [])
+        if isinstance(conversion_warnings, list):
+            for warning_data in conversion_warnings:
+                if isinstance(warning_data, dict):
+                    warning = ConversionWarning(
+                        type=warning_data.get("type", "warning"),
+                        severity=warning_data.get("severity", "medium"),
+                        message=warning_data.get("message", ""),
+                        source=warning_data.get("source", "unknown"),
+                        location=warning_data.get("location"),
+                        suggestion=warning_data.get("suggestion"),
+                    )
+                    warnings_list.append(warning)
+
+                    # Count by severity
+                    severity = warning_data.get("severity", "medium")
+                    if severity in warnings_by_severity:
+                        warnings_by_severity[severity] += 1
+
+            total_warnings = len(warnings_list)
+
+        # Extract content verification metrics
+        content_verification = None
+        verification_data = metadata_dict.get("content_verification", {})
+        if isinstance(verification_data, dict) and verification_data:
+            try:
+                # Extract LaTeX metrics
+                latex_data = verification_data.get("latex_metrics", {})
+                latex_metrics = ContentMetrics(
+                    sections=latex_data.get("sections", 0),
+                    figures=latex_data.get("figures", 0),
+                    tables=latex_data.get("tables", 0),
+                    equations=latex_data.get("equations", 0),
+                    citations=latex_data.get("citations", 0),
+                    word_count=latex_data.get("word_count", 0),
+                )
+
+                # Extract HTML metrics
+                html_data = verification_data.get("html_metrics", {})
+                html_metrics = ContentMetrics(
+                    sections=html_data.get("sections", 0),
+                    figures=html_data.get("figures", 0),
+                    tables=html_data.get("tables", 0),
+                    equations=html_data.get("equations", 0),
+                    citations=html_data.get("citations", 0),
+                    word_count=html_data.get("word_count", 0),
+                )
+
+                content_verification = ContentVerificationMetrics(
+                    preservation_score=verification_data.get("preservation_score", 0.0),
+                    quality_assessment=verification_data.get(
+                        "quality_assessment", "unknown"
+                    ),
+                    sections_preserved=verification_data.get("sections_preserved", 0.0),
+                    figures_preserved=verification_data.get("figures_preserved", 0.0),
+                    tables_preserved=verification_data.get("tables_preserved", 0.0),
+                    equations_preserved=verification_data.get(
+                        "equations_preserved", 0.0
+                    ),
+                    citations_preserved=verification_data.get(
+                        "citations_preserved", 0.0
+                    ),
+                    words_preserved=verification_data.get("words_preserved", 0.0),
+                    latex_metrics=latex_metrics,
+                    html_metrics=html_metrics,
+                    missing_content=verification_data.get("missing_content", []),
+                )
+
+                # Use quality assessment from verification if not already set
+                if quality_assessment is None:
+                    quality_assessment = verification_data.get("quality_assessment")
+
+                # Use preservation score as quality score if not already set
+                if quality_score is None:
+                    quality_score = verification_data.get("preservation_score")
+
+            except Exception as ve_exc:
+                logger.warning(f"Failed to parse content verification data: {ve_exc}")
+
+        # Extract diff report summary
+        diff_report = None
+        diff_data = metadata_dict.get("diff_report", {})
+        if isinstance(diff_data, dict) and diff_data:
+            try:
+                # Extract section summaries
+                section_summaries = []
+                for section_data in diff_data.get("section_diffs", []):
+                    if isinstance(section_data, dict):
+                        section_summary = SectionDiffSummary(
+                            section_title=section_data.get("section_title", ""),
+                            preservation_score=section_data.get(
+                                "preservation_score", 0.0
+                            ),
+                            latex_word_count=section_data.get("latex_word_count", 0),
+                            html_word_count=section_data.get("html_word_count", 0),
+                            status=section_data.get("status", "unknown"),
+                        )
+                        section_summaries.append(section_summary)
+
+                # Get report file path
+                report_file = None
+                if output_dir:
+                    report_path = output_dir / "content_diff_report.html"
+                    if report_path.exists():
+                        report_file = str(report_path)
+
+                diff_report = DiffReportSummary(
+                    overall_preservation=diff_data.get("overall_preservation", 0.0),
+                    total_sections=diff_data.get("total_sections", 0),
+                    sections_preserved=diff_data.get("sections_preserved", 0),
+                    sections_partial=diff_data.get("sections_partial", 0),
+                    sections_missing=diff_data.get("sections_missing", 0),
+                    sections_added=diff_data.get("sections_added", 0),
+                    section_summaries=section_summaries,
+                    report_file=report_file,
+                )
+
+            except Exception as diff_exc:
+                logger.warning(f"Failed to parse diff report data: {diff_exc}")
+
+        # Extract packages used
+        packages_used = metadata_dict.get("packages_used", [])
+        if not isinstance(packages_used, list):
+            packages_used = []
+
+        # Map orchestrator status to API status
+        status_mapping = {
+            ConversionStatusEnum.PENDING: ConversionStatus.PENDING,
+            ConversionStatusEnum.RUNNING: ConversionStatus.PROCESSING,
+            ConversionStatusEnum.COMPLETED: ConversionStatus.COMPLETED,
+            ConversionStatusEnum.FAILED: ConversionStatus.FAILED,
+            ConversionStatusEnum.CANCELLED: ConversionStatus.CANCELLED,
+        }
+        api_status = status_mapping.get(status, ConversionStatus.PENDING)
+
+        # Create and return summary response
+        return ConversionSummaryResponse(
+            conversion_id=conversion_id,
+            status=api_status,
+            created_at=created_at,
+            completed_at=completed_at,
+            conversion_time=conversion_time,
+            quality_score=quality_score,
+            quality_assessment=quality_assessment,
+            total_warnings=total_warnings,
+            warnings_by_severity=warnings_by_severity,
+            warnings=warnings_list,
+            error_message=error_message,
+            content_verification=content_verification,
+            diff_report=diff_report,
+            html_file=html_file_path,
+            asset_count=asset_count,
+            packages_used=packages_used,
+            stages_completed=stages_completed,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Failed to get conversion summary for {conversion_id}: {exc}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get conversion summary: {str(exc)}"
         ) from exc
 
 
