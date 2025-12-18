@@ -271,8 +271,8 @@ class LaTeXMLConversionOptions(BaseModel):
         if v is not None:
             if v <= 0:
                 raise ValueError("Conversion timeout must be positive")
-            if v > 3600:  # 1 hour max
-                raise ValueError("Conversion timeout cannot exceed 1 hour")
+            if v > 14400:  # 4 hours max (consistent with LaTeXMLSettings)
+                raise ValueError("Conversion timeout cannot exceed 4 hours")
         return v
 
     def to_latexml_settings(self) -> LaTeXMLSettings:

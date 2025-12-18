@@ -167,19 +167,19 @@ class ConversionOrchestrator:
         Returns:
             ConversionStatus: Job status or None if not found
         """
+        # Check orchestrator's _jobs first (avoid nested locks)
         with self._job_lock:
-            # First check orchestrator's _jobs
             job = self._jobs.get(job_id)
             if job:
                 return job.status
-            
-            # If not found, check pipeline's _active_jobs (where jobs are during execution)
-            with self._pipeline._job_lock:
-                pipeline_job = self._pipeline._active_jobs.get(job_id)
-                if pipeline_job:
-                    return pipeline_job.status
-            
-            return None
+        
+        # If not found, check pipeline's _active_jobs (separate lock scope)
+        with self._pipeline._job_lock:
+            pipeline_job = self._pipeline._active_jobs.get(job_id)
+            if pipeline_job:
+                return pipeline_job.status
+        
+        return None
 
     def get_job_progress(self, job_id: str) -> ConversionProgress | None:
         """
@@ -191,20 +191,20 @@ class ConversionOrchestrator:
         Returns:
             ConversionProgress: Progress information or None if not found
         """
+        # First try to get progress from pipeline (avoid nested locks)
+        pipeline_progress = self._pipeline.get_job_progress(job_id)
+        if pipeline_progress:
+            return pipeline_progress
+        
+        # If pipeline doesn't have it, try to get job from orchestrator's _jobs
         with self._job_lock:
-            # First try to get progress from pipeline (it has the most up-to-date job state)
-            pipeline_progress = self._pipeline.get_job_progress(job_id)
-            if pipeline_progress:
-                return pipeline_progress
-            
-            # If pipeline doesn't have it, try to get job from orchestrator's _jobs
             job = self._jobs.get(job_id)
             if job:
                 # Calculate progress from the job directly
                 return self._calculate_progress_from_job(job)
-            
-            # Job not found in either location
-            return None
+        
+        # Job not found in either location
+        return None
 
     def _calculate_progress_from_job(self, job: ConversionJob) -> ConversionProgress:
         """Calculate progress from a job object."""

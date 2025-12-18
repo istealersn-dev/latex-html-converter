@@ -19,10 +19,6 @@ class LaTeXPreprocessor:
         """Initialize the LaTeX preprocessor."""
         self.logger = logger
 
-    def __init__(self):
-        """Initialize the LaTeX preprocessor."""
-        self.logger = logger
-
     def detect_custom_class(
         self, input_file: Path, project_dir: Path | None = None
     ) -> dict[str, Any] | None:
@@ -82,6 +78,8 @@ class LaTeXPreprocessor:
                 search_dirs.append(input_file.parent.parent)
 
             for search_dir in search_dirs:
+                if cls_file:
+                    break
                 # Look for class file
                 potential_cls = search_dir / f"{class_name}.cls"
                 if potential_cls.exists():
@@ -91,14 +89,14 @@ class LaTeXPreprocessor:
 
                 # Also check subdirectories
                 for subdir in search_dir.rglob("*"):
+                    if cls_file:
+                        break
                     if subdir.is_dir():
                         potential_cls = subdir / f"{class_name}.cls"
                         if potential_cls.exists():
                             cls_file = potential_cls
                             self.logger.info(f"Found class file: {cls_file}")
                             break
-                    if cls_file:
-                        break
 
             # Find related style files (same name.sty)
             sty_files = []
