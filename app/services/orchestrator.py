@@ -167,17 +167,16 @@ class ConversionOrchestrator:
         Returns:
             ConversionStatus: Job status or None if not found
         """
-        # Check orchestrator's _jobs first (avoid nested locks)
+        # Check orchestrator's _jobs first
         with self._job_lock:
             job = self._jobs.get(job_id)
             if job:
                 return job.status
         
-        # If not found, check pipeline's _active_jobs (separate lock scope)
-        with self._pipeline._job_lock:
-            pipeline_job = self._pipeline._active_jobs.get(job_id)
-            if pipeline_job:
-                return pipeline_job.status
+        # If not found, check pipeline using its public method (maintains encapsulation)
+        pipeline_status = self._pipeline.get_job_status(job_id)
+        if pipeline_status:
+            return pipeline_status
         
         return None
 
@@ -191,17 +190,18 @@ class ConversionOrchestrator:
         Returns:
             ConversionProgress: Progress information or None if not found
         """
-        # First try to get progress from pipeline (avoid nested locks)
-        pipeline_progress = self._pipeline.get_job_progress(job_id)
-        if pipeline_progress:
-            return pipeline_progress
-        
-        # If pipeline doesn't have it, try to get job from orchestrator's _jobs
+        # Check orchestrator's _jobs first (most authoritative source)
         with self._job_lock:
             job = self._jobs.get(job_id)
             if job:
                 # Calculate progress from the job directly
                 return self._calculate_progress_from_job(job)
+        
+        # If not found in orchestrator, try pipeline (jobs during execution)
+        # Pipeline's get_job_progress handles its own locking internally
+        pipeline_progress = self._pipeline.get_job_progress(job_id)
+        if pipeline_progress:
+            return pipeline_progress
         
         # Job not found in either location
         return None
@@ -209,13 +209,15 @@ class ConversionOrchestrator:
     def _calculate_progress_from_job(self, job: ConversionJob) -> ConversionProgress:
         """Calculate progress from a job object."""
         # Calculate basic progress from job stages
-        # Ensure total_stages is at least 1 to prevent division by zero
+        # Use max() to enforce minimum of 1 to prevent division by zero
+        # This handles edge case where job.stages might be empty
         total_stages = max(len(job.stages) if job.stages else 4, 1)
         completed_stages = sum(
             1 for stage in job.stages 
             if stage.status == ConversionStatus.COMPLETED
         ) if job.stages else 0
         
+        # Division is safe because total_stages is enforced to be >= 1 via max()
         base_progress = (completed_stages / total_stages * 100)
         
         # Estimate progress for running stage
@@ -243,7 +245,7 @@ class ConversionOrchestrator:
                 current_stage_progress = current_stage.progress_percentage
         
         # Overall progress = base progress + (current stage progress / total stages)
-        # total_stages is guaranteed to be >= 1, so division is safe
+        # Division is safe because total_stages is enforced to be >= 1 via max() above
         progress_percentage = base_progress + (current_stage_progress / total_stages)
         progress_percentage = min(99.0, progress_percentage)
         

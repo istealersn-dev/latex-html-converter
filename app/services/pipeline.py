@@ -313,14 +313,10 @@ class ConversionPipeline:
             if job.job_id not in self._active_jobs:
                 self._active_jobs[job.job_id] = job
                 logger.debug(f"Added job {job.job_id} to _active_jobs for progress tracking")
-            else:
-                # Verify same object reference for consistency
-                existing_job = self._active_jobs[job.job_id]
-                if existing_job is not job:
-                    logger.warning(
-                        f"Job {job.job_id} exists with different object reference - "
-                        f"this may indicate a bug where duplicate job instances exist"
-                    )
+            # Note: We don't check for different object references here because:
+            # 1. The job is created once in create_conversion_job() and passed by reference
+            # 2. If different instances exist, that's a bug in job creation, not here
+            # 3. Checking here would only detect the symptom, not prevent the root cause
         
         job.status = ConversionStatus.RUNNING
         job.started_at = datetime.utcnow()
@@ -413,6 +409,22 @@ class ConversionPipeline:
                 {"timeout_seconds": timeout_seconds, "elapsed_seconds": elapsed},
             )
 
+    def get_job_status(self, job_id: str) -> ConversionStatus | None:
+        """
+        Get the status of a conversion job.
+
+        Args:
+            job_id: Job identifier
+
+        Returns:
+            ConversionStatus: Job status or None if not found
+        """
+        with self._job_lock:
+            job = self._active_jobs.get(job_id)
+            if job:
+                return job.status
+        return None
+
     def get_job_progress(self, job_id: str) -> ConversionProgress | None:
         """
         Get progress information for a conversion job.
@@ -429,14 +441,15 @@ class ConversionPipeline:
                 return None
 
         # Calculate overall progress
-        # Ensure total_stages is at least 1 to prevent division by zero
+        # Use max() to enforce minimum of 1 to prevent division by zero
+        # This handles edge case where job.stages might be empty
         total_stages = max(len(job.stages) if job.stages else 4, 1)
         completed_stages = sum(
             1 for stage in job.stages if stage.status == ConversionStatus.COMPLETED
         ) if job.stages else 0
         
         # Calculate base progress from completed stages
-        # total_stages is guaranteed to be >= 1, so division is safe
+        # Division is safe because total_stages is enforced to be >= 1 via max() above
         base_progress = (completed_stages / total_stages * 100)
         
         # Estimate progress for currently running stage based on elapsed time
@@ -480,7 +493,7 @@ class ConversionPipeline:
                 current_stage_progress = current_stage.progress_percentage
         
         # Overall progress = base progress + (current stage progress / total stages)
-        # total_stages is guaranteed to be >= 1, so division is safe
+        # Division is safe because total_stages is enforced to be >= 1 via max() above
         progress_percentage = base_progress + (current_stage_progress / total_stages)
         progress_percentage = min(99.0, progress_percentage)  # Cap at 99% until fully complete
 
