@@ -178,11 +178,14 @@ class LaTeXMLService:
                 
                 # Also add all parent directories up to 2 levels to ensure class files are found
                 # This helps when class files are in subdirectories
+                # Use a set to track added paths for O(1) lookup instead of O(n) list search
+                added_paths = set()
                 current_dir = project_dir
                 for _ in range(2):
                     if current_dir.parent.exists() and current_dir.parent != current_dir:
                         parent_path = str(current_dir.parent)
-                        if parent_path not in cmd:  # Avoid duplicates
+                        if parent_path not in added_paths:  # O(1) lookup
+                            added_paths.add(parent_path)
                             cmd.extend(["--path", parent_path])
                         current_dir = current_dir.parent
                     else:

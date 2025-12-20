@@ -173,7 +173,7 @@ class ConversionPipeline:
             # + 60 seconds per MB for files 20-50MB  
             # + 90 seconds per MB for files 50-100MB
             # + 1 second per file (complexity factor)
-            # This ensures 100MB files get ~2.5 hours, with max of 4 hours
+            # This ensures 100MB files get ~2.1 hours (7600s), with max of 4 hours
             
             size_mb = total_size / (1024 * 1024)
             
@@ -306,11 +306,20 @@ class ConversionPipeline:
         # Ensure job is in active_jobs for progress tracking
         # This is important because the job might be passed from orchestrator
         # but not yet in _active_jobs, or it might have been removed
+        # Note: The job is also tracked in orchestrator._jobs, but pipeline._active_jobs
+        # is used during execution for real-time progress queries. Both should reference
+        # the same job object to maintain consistency.
         with self._job_lock:
             if job.job_id not in self._active_jobs:
                 self._active_jobs[job.job_id] = job
                 logger.info(f"Added job {job.job_id} to _active_jobs for progress tracking")
             else:
+                # Job already exists - ensure it's the same object reference
+                existing_job = self._active_jobs[job.job_id]
+                if existing_job is not job:
+                    logger.warning(
+                        f"Job {job.job_id} exists in _active_jobs with different object reference"
+                    )
                 logger.debug(f"Job {job.job_id} already in _active_jobs")
         
         job.status = ConversionStatus.RUNNING
