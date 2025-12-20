@@ -80,23 +80,22 @@ class LaTeXPreprocessor:
             for search_dir in search_dirs:
                 if cls_file:
                     break
-                # Look for class file
+                # Look for class file in current directory
                 potential_cls = search_dir / f"{class_name}.cls"
                 if potential_cls.exists():
                     cls_file = potential_cls
                     self.logger.info(f"Found class file: {cls_file}")
                     break
 
-                # Also check subdirectories
-                for subdir in search_dir.rglob("*"):
-                    if cls_file:
+                # Also check subdirectories - use rglob with pattern to find .cls files directly
+                # This is more efficient than iterating all files and checking is_dir()
+                for cls_path in search_dir.rglob(f"{class_name}.cls"):
+                    if cls_path.is_file():
+                        cls_file = cls_path
+                        self.logger.info(f"Found class file: {cls_file}")
                         break
-                    if subdir.is_dir():
-                        potential_cls = subdir / f"{class_name}.cls"
-                        if potential_cls.exists():
-                            cls_file = potential_cls
-                            self.logger.info(f"Found class file: {cls_file}")
-                            break
+                if cls_file:
+                    break
 
             # Find related style files (same name.sty)
             sty_files = []

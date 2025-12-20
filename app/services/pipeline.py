@@ -304,14 +304,23 @@ class ConversionPipeline:
             PipelineTimeoutError: If pipeline execution exceeds timeout
         """
         # Ensure job is in active_jobs for progress tracking
-        # Note: The job is already added to _active_jobs by create_conversion_job(),
+        # Note: The job is already added to _active_jobs by create_conversion_job() (line 277),
         # but we ensure it's here as a safety measure in case execute_pipeline is called
         # directly or the job was removed. Both orchestrator._jobs and pipeline._active_jobs
-        # reference the same job object to maintain consistency.
+        # reference the same job object (passed by reference) to maintain consistency.
+        # This ensures modifications to the job object are visible in both locations.
         with self._job_lock:
             if job.job_id not in self._active_jobs:
                 self._active_jobs[job.job_id] = job
                 logger.debug(f"Added job {job.job_id} to _active_jobs for progress tracking")
+            else:
+                # Verify same object reference for consistency
+                existing_job = self._active_jobs[job.job_id]
+                if existing_job is not job:
+                    logger.warning(
+                        f"Job {job.job_id} exists with different object reference - "
+                        f"this may indicate a bug where duplicate job instances exist"
+                    )
         
         job.status = ConversionStatus.RUNNING
         job.started_at = datetime.utcnow()
@@ -471,7 +480,8 @@ class ConversionPipeline:
                 current_stage_progress = current_stage.progress_percentage
         
         # Overall progress = base progress + (current stage progress / total stages)
-        progress_percentage = base_progress + (current_stage_progress / total_stages) if total_stages > 0 else 0.0
+        # total_stages is guaranteed to be >= 1, so division is safe
+        progress_percentage = base_progress + (current_stage_progress / total_stages)
         progress_percentage = min(99.0, progress_percentage)  # Cap at 99% until fully complete
 
         # Calculate elapsed time
