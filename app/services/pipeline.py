@@ -429,15 +429,15 @@ class ConversionPipeline:
                 return None
 
         # Calculate overall progress
-        total_stages = len(job.stages)
+        # Ensure total_stages is at least 1 to prevent division by zero
+        total_stages = max(len(job.stages) if job.stages else 4, 1)
         completed_stages = sum(
             1 for stage in job.stages if stage.status == ConversionStatus.COMPLETED
-        )
+        ) if job.stages else 0
         
         # Calculate base progress from completed stages
-        base_progress = (
-            (completed_stages / total_stages * 100) if total_stages > 0 else 0.0
-        )
+        # total_stages is guaranteed to be >= 1, so division is safe
+        base_progress = (completed_stages / total_stages * 100)
         
         # Estimate progress for currently running stage based on elapsed time
         current_stage_progress = 0.0
