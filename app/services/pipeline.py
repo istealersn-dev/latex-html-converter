@@ -449,7 +449,7 @@ class ConversionPipeline:
         ) if job.stages else 0
         
         # Calculate base progress from completed stages
-        # Division is safe because total_stages is enforced to be >= 1 via max() above
+        # Division is safe because total_stages is set to at least 1 via max() above to prevent division by zero
         base_progress = (completed_stages / total_stages * 100)
         
         # Estimate progress for currently running stage based on elapsed time
@@ -493,7 +493,7 @@ class ConversionPipeline:
                 current_stage_progress = current_stage.progress_percentage
         
         # Overall progress = base progress + (current stage progress / total stages)
-        # Division is safe because total_stages is enforced to be >= 1 via max() above
+        # Division is safe because total_stages is set to at least 1 via max() above to prevent division by zero
         progress_percentage = base_progress + (current_stage_progress / total_stages)
         progress_percentage = min(99.0, progress_percentage)  # Cap at 99% until fully complete
 
