@@ -208,8 +208,6 @@ class ConversionOrchestrator:
 
     def _calculate_progress_from_job(self, job: ConversionJob) -> ConversionProgress:
         """Calculate progress from a job object."""
-        from datetime import datetime
-        
         # Calculate basic progress from job stages
         total_stages = len(job.stages) if job.stages else 4
         completed_stages = sum(
@@ -242,7 +240,8 @@ class ConversionOrchestrator:
                     estimated_progress = min(95.0, (stage_elapsed / stage_timeout) * 100)
                     current_stage_progress = max(0.0, estimated_progress)
             else:
-                current_stage_progress = current_stage.progress_percentage if job.stages else 0.0
+                # job.stages is guaranteed to be truthy here (inside if job.stages block)
+                current_stage_progress = current_stage.progress_percentage
         
         progress_percentage = base_progress + (current_stage_progress / total_stages) if total_stages > 0 else 0.0
         progress_percentage = min(99.0, progress_percentage)

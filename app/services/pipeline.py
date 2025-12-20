@@ -304,23 +304,14 @@ class ConversionPipeline:
             PipelineTimeoutError: If pipeline execution exceeds timeout
         """
         # Ensure job is in active_jobs for progress tracking
-        # This is important because the job might be passed from orchestrator
-        # but not yet in _active_jobs, or it might have been removed
-        # Note: The job is also tracked in orchestrator._jobs, but pipeline._active_jobs
-        # is used during execution for real-time progress queries. Both should reference
-        # the same job object to maintain consistency.
+        # Note: The job is already added to _active_jobs by create_conversion_job(),
+        # but we ensure it's here as a safety measure in case execute_pipeline is called
+        # directly or the job was removed. Both orchestrator._jobs and pipeline._active_jobs
+        # reference the same job object to maintain consistency.
         with self._job_lock:
             if job.job_id not in self._active_jobs:
                 self._active_jobs[job.job_id] = job
-                logger.info(f"Added job {job.job_id} to _active_jobs for progress tracking")
-            else:
-                # Job already exists - ensure it's the same object reference
-                existing_job = self._active_jobs[job.job_id]
-                if existing_job is not job:
-                    logger.warning(
-                        f"Job {job.job_id} exists in _active_jobs with different object reference"
-                    )
-                logger.debug(f"Job {job.job_id} already in _active_jobs")
+                logger.debug(f"Added job {job.job_id} to _active_jobs for progress tracking")
         
         job.status = ConversionStatus.RUNNING
         job.started_at = datetime.utcnow()

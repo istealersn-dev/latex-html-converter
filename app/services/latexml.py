@@ -180,18 +180,22 @@ class LaTeXMLService:
                 # This helps when class files are in subdirectories
                 # Use a set to track added paths for O(1) lookup instead of O(n) list search
                 added_paths = set()
+                parent_paths_added = []
                 current_dir = project_dir
                 for _ in range(2):
                     if current_dir.parent.exists() and current_dir.parent != current_dir:
                         parent_path = str(current_dir.parent)
                         if parent_path not in added_paths:  # O(1) lookup
                             added_paths.add(parent_path)
+                            parent_paths_added.append(parent_path)
                             cmd.extend(["--path", parent_path])
                         current_dir = current_dir.parent
                     else:
                         break
 
                 logger.info("Added project directory paths: %s", project_dir)
+                if parent_paths_added:
+                    logger.debug("Added parent directory paths for class file discovery: %s", parent_paths_added)
 
             env_vars = settings.get_environment_vars()
 
