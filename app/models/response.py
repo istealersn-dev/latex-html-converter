@@ -6,7 +6,7 @@ This module defines Pydantic models for API response formatting.
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -172,8 +172,8 @@ class ConversionReport(BaseModel):
 class ConversionWarning(BaseModel):
     """Model for a single conversion warning."""
 
-    type: str = Field(..., description="Warning type (error, warning, info)")
-    severity: str = Field(..., description="Severity level (high, medium, low)")
+    type: Literal["error", "warning", "info"] = Field(..., description="Warning type (error, warning, info)")
+    severity: Literal["high", "medium", "low"] = Field(..., description="Severity level (high, medium, low)")
     message: str = Field(..., description="Warning message")
     source: str = Field(..., description="Source of the warning")
     location: str | None = Field(default=None, description="Location in document")
@@ -240,7 +240,7 @@ class SectionDiffSummary(BaseModel):
     )
     latex_word_count: int = Field(..., description="LaTeX word count")
     html_word_count: int = Field(..., description="HTML word count")
-    status: str = Field(
+    status: Literal["preserved", "partial", "missing", "added"] = Field(
         ..., description="Status (preserved, partial, missing, added)"
     )
 

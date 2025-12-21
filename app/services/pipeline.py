@@ -1105,7 +1105,12 @@ class ConversionPipeline:
                         ])
 
                 except Exception as exc:
-                    logger.warning(f"Content verification failed: {exc}")
+                    # Log full traceback for debugging failed verifications
+                    import traceback
+                    logger.warning(
+                        f"Content verification failed: {exc}\n"
+                        f"Full traceback: {traceback.format_exc()}"
+                    )
                     # Don't fail the entire conversion if verification fails
                     stage.metadata.setdefault("warnings", []).append(
                         f"Content verification failed: {exc}"
@@ -1309,7 +1314,8 @@ class ConversionPipeline:
 
         except Exception as exc:
             logger.error(f"Failed to add diff report link: {exc}")
-            raise
+            # Don't re-raise - this is not critical enough to fail the conversion
+            # HTML modification failure should not prevent successful conversion
 
     def _find_main_tex_file(self, job: ConversionJob) -> Path | None:
         """Find the main .tex file from job metadata or input file."""

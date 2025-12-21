@@ -177,7 +177,11 @@ class ContentVerificationService:
             with open(html_file, encoding="utf-8") as f:
                 content = f.read()
 
-            soup = BeautifulSoup(content, "lxml" if "lxml" else "html.parser")
+            try:
+                import lxml
+                soup = BeautifulSoup(content, "lxml")
+            except ImportError:
+                soup = BeautifulSoup(content, "html.parser")
             metrics = HtmlContentMetrics()
 
             # Count headings
@@ -352,7 +356,9 @@ class ContentVerificationService:
             Preservation percentage (0-100)
         """
         if source_count == 0:
-            return 100.0 if output_count == 0 else 100.0  # Nothing to preserve
+            # If source is empty but output has content, this indicates extra content was added
+            # Return 0% preservation to indicate this is not a preservation success
+            return 0.0 if output_count > 0 else 100.0  # 100% only if both are empty
 
         if output_count >= source_count:
             return 100.0

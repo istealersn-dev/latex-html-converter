@@ -990,7 +990,11 @@ async def get_conversion_summary(conversion_id: str) -> ConversionSummaryRespons
                     quality_score = verification_data.get("preservation_score")
 
             except Exception as ve_exc:
-                logger.warning(f"Failed to parse content verification data: {ve_exc}")
+                # Log specific fields that failed parsing for better debugging
+                logger.warning(
+                    f"Failed to parse content verification data: {ve_exc}. "
+                    f"Data keys: {list(verification_data.keys()) if isinstance(verification_data, dict) else 'N/A'}"
+                )
 
         # Extract diff report summary
         diff_report = None

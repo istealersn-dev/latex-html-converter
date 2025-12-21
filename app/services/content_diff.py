@@ -5,6 +5,7 @@ This service generates detailed, section-by-section comparison reports showing
 exactly what content was preserved, altered, or lost during conversion.
 """
 
+import html
 import json
 import re
 from dataclasses import dataclass, field
@@ -186,7 +187,10 @@ class ContentDiffReportService:
                 citations = len(self.citation_pattern.findall(section_content))
 
                 # Word count (approximate)
-                clean_content = re.sub(r"\\[a-zA-Z]+(\[[^\]]*\])?(\{[^}]*\})*", " ", section_content)
+                # Improved regex to match LaTeX commands more accurately:
+                # - Matches \command, \command[], \command{}, \command[]{}, etc.
+                # - Handles nested braces and brackets
+                clean_content = re.sub(r"\\[a-zA-Z@]+(\[[^\]]*\])*(\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})*", " ", section_content)
                 clean_content = re.sub(r"\$[^$]*\$", " ", clean_content)
                 words = clean_content.split()
                 word_count = len([w for w in words if len(w) > 0])
@@ -219,7 +223,11 @@ class ContentDiffReportService:
             with open(html_file, encoding="utf-8") as f:
                 content = f.read()
 
-            soup = BeautifulSoup(content, "lxml" if "lxml" else "html.parser")
+            try:
+                import lxml
+                soup = BeautifulSoup(content, "lxml")
+            except ImportError:
+                soup = BeautifulSoup(content, "html.parser")
             sections = []
 
             # Find all heading tags (h1-h6)
@@ -806,8 +814,8 @@ class ContentDiffReportService:
             <h1>Content Diff Report</h1>
             <div class="score">{score:.1f}% Preserved</div>
             <div>
-                <strong>Source:</strong> {Path(report.source_file).name}<br>
-                <strong>Output:</strong> {Path(report.output_file).name}
+                <strong>Source:</strong> {html.escape(Path(report.source_file).name)}<br>
+                <strong>Output:</strong> {html.escape(Path(report.output_file).name)}
             </div>
         </div>
 
