@@ -167,9 +167,18 @@ class ConversionOrchestrator:
         Returns:
             ConversionStatus: Job status or None if not found
         """
+        # Check orchestrator's _jobs first
         with self._job_lock:
             job = self._jobs.get(job_id)
-            return job.status if job else None
+            if job:
+                return job.status
+        
+        # If not found, check pipeline using its public method (maintains encapsulation)
+        pipeline_status = self._pipeline.get_job_status(job_id)
+        if pipeline_status:
+            return pipeline_status
+        
+        return None
 
     def get_job_progress(self, job_id: str) -> ConversionProgress | None:
         """
@@ -181,12 +190,89 @@ class ConversionOrchestrator:
         Returns:
             ConversionProgress: Progress information or None if not found
         """
+        # Check orchestrator's _jobs first (most authoritative source)
         with self._job_lock:
             job = self._jobs.get(job_id)
-            if not job:
-                return None
+            if job:
+                # Calculate progress from the job directly
+                return self._calculate_progress_from_job(job)
+        
+        # If not found in orchestrator, try pipeline (jobs during execution)
+        # Pipeline's get_job_progress handles its own locking internally
+        pipeline_progress = self._pipeline.get_job_progress(job_id)
+        if pipeline_progress:
+            return pipeline_progress
+        
+        # Job not found in either location
+        return None
 
-            return self._pipeline.get_job_progress(job_id)
+    def _calculate_progress_from_job(self, job: ConversionJob) -> ConversionProgress:
+        """Calculate progress from a job object."""
+        # Calculate basic progress from job stages
+        # Use max() to enforce minimum of 1 to prevent division by zero
+        # This handles edge case where job.stages might be empty
+        total_stages = max(len(job.stages) if job.stages else 4, 1)
+        completed_stages = sum(
+            1 for stage in job.stages 
+            if stage.status == ConversionStatus.COMPLETED
+        ) if job.stages else 0
+        
+        # Division is safe because total_stages is set to at least 1 via max() to prevent division by zero
+        base_progress = (completed_stages / total_stages * 100)
+        
+        # Estimate progress for running stage
+        current_stage_progress = 0.0
+        if job.stages:
+            current_stage = job.stages[-1]
+            if current_stage.status == ConversionStatus.RUNNING and current_stage.started_at:
+                stage_elapsed = (datetime.utcnow() - current_stage.started_at).total_seconds()
+                job_timeout = job.metadata.get("timeout_seconds", 600)
+                
+                if current_stage.name == "LaTeXML Conversion":
+                    stage_timeout = job_timeout * 0.7
+                elif current_stage.name == "Tectonic Compilation":
+                    stage_timeout = job_timeout * 0.2
+                elif current_stage.name == "HTML Post-Processing":
+                    stage_timeout = job_timeout * 0.05
+                else:
+                    stage_timeout = job_timeout * 0.05
+                
+                if stage_timeout > 0:
+                    estimated_progress = min(95.0, (stage_elapsed / stage_timeout) * 100)
+                    current_stage_progress = max(0.0, estimated_progress)
+            else:
+                # job.stages is truthy here (inside if job.stages block)
+                current_stage_progress = current_stage.progress_percentage
+        
+        # Overall progress = base progress + (current stage progress / total stages)
+        # Division is safe because total_stages is set to at least 1 via max() above to prevent division by zero
+        progress_percentage = base_progress + (current_stage_progress / total_stages)
+        progress_percentage = min(99.0, progress_percentage)
+        
+        elapsed_seconds = None
+        if job.started_at:
+            elapsed_seconds = (datetime.utcnow() - job.started_at).total_seconds()
+        
+        # Get stage message
+        message = "Processing"
+        if job.current_stage:
+            stage_name = job.current_stage.value.replace("_", " ").title()
+            message = f"Processing {stage_name.lower()}"
+        
+        return ConversionProgress(
+            job_id=job.job_id,
+            status=job.status,
+            current_stage=job.current_stage,
+            progress_percentage=progress_percentage,
+            current_stage_progress=current_stage_progress,
+            stages_completed=completed_stages,
+            total_stages=total_stages,
+            elapsed_seconds=elapsed_seconds,
+            estimated_remaining_seconds=None,
+            message=message,
+            warnings=[],
+            updated_at=datetime.utcnow(),
+        )
 
     def get_job_result(self, job_id: str) -> ConversionResult | None:
         """
