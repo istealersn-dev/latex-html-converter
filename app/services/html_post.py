@@ -166,6 +166,12 @@ class HTMLPostProcessor:
             # Step 5: Optimize HTML
             optimized_soup = optimize_html(enhanced_soup, processing_results)
 
+            # Step 6: Add content verification report (if verification data exists)
+            self._add_content_verification_report(optimized_soup, processing_results)
+
+            # Step 7: Add conversion warnings summary banner (if any warnings exist)
+            self._add_conversion_warnings_summary(optimized_soup, processing_results)
+
             # Generate output
             if output_file:
                 self._write_html(optimized_soup, output_file)
@@ -203,7 +209,8 @@ class HTMLPostProcessor:
         """Enhance HTML with additional features."""
         try:
             # Fix LaTeXML artifacts from missing custom class
-            self._fix_latexml_artifacts(soup)
+            # Pass results dict to collect conversion warnings
+            self._fix_latexml_artifacts(soup, results)
 
             # Fix image paths to point to correct location
             self._fix_image_paths(soup)
@@ -235,9 +242,14 @@ class HTMLPostProcessor:
             logger.error(error_msg)
             return soup
 
-    def _fix_latexml_artifacts(self, soup: BeautifulSoup) -> None:
-        """Fix artifacts from LaTeXML processing custom classes
-        without proper bindings."""
+    def _fix_latexml_artifacts(self, soup: BeautifulSoup, results: dict[str, Any]) -> None:
+        """
+        Fix artifacts from LaTeXML processing custom classes without proper bindings.
+
+        Args:
+            soup: BeautifulSoup object to process
+            results: Processing results dict to store warnings
+        """
 
         # Fix 1: Remove '12pt', '0pt', '11pt' etc. from beginning of headings and titles
         # These come from \fontsize commands that LaTeXML doesn't process properly
@@ -308,9 +320,14 @@ class HTMLPostProcessor:
                         f"covering {percentage:.0f}% of paragraph"
                     )
 
-        # Fix 3: Remove LaTeXML error/warning messages from HTML
-        # Remove yellow "Unknown environment" warnings and other LaTeXML artifacts
-        self._remove_latexml_warnings(soup)
+        # Fix 3: Collect and style LaTeXML error/warning messages
+        # Instead of removing them, preserve them so users know about conversion issues
+        conversion_warnings = self._collect_and_style_latexml_warnings(soup)
+
+        # Store warnings in results for later reporting
+        if conversion_warnings:
+            results.setdefault("conversion_warnings", []).extend(conversion_warnings)
+            logger.info(f"Collected {len(conversion_warnings)} conversion warnings")
 
         # Fix 4 & 5: Process all citations in a single pass for efficiency
         # Collect all cite elements once to avoid multiple DOM traversals
@@ -787,15 +804,42 @@ class HTMLPostProcessor:
         
         logger.debug(f"Merged {len(mjx_containers)} MathJax containers into one")
 
-    def _remove_latexml_warnings(self, soup: BeautifulSoup) -> None:
-        """Remove LaTeXML warning and error messages from HTML output."""
+    def _collect_and_style_latexml_warnings(self, soup: BeautifulSoup) -> list[dict[str, Any]]:
+        """
+        Collect and style LaTeXML warning/error messages instead of removing them.
 
-        # Remove elements with ltx_ERROR class (LaTeXML errors)
+        Returns:
+            List of collected warnings with metadata
+        """
+        collected_warnings = []
+
+        # Collect elements with ltx_ERROR class (LaTeXML errors)
         for error_elem in soup.find_all(class_=self.error_class_pattern):
-            logger.debug(f"Removing LaTeXML error: {error_elem.get_text()[:100]}")
-            error_elem.decompose()
+            error_text = error_elem.get_text(strip=True)
+            logger.warning(f"LaTeXML error detected: {error_text[:100]}")
 
-        # Remove elements with specific error/warning patterns
+            # Store warning metadata
+            collected_warnings.append({
+                "type": "error",
+                "severity": "high",
+                "message": error_text,
+                "source": "latexml_error_class",
+            })
+
+            # Style the error instead of removing it
+            # Remove garish yellow background, use subtle styling
+            error_elem["class"] = error_elem.get("class", []) + ["conversion-error"]
+            error_elem["style"] = (
+                "background-color: #fff3cd; "
+                "border-left: 4px solid #ffc107; "
+                "padding: 8px; "
+                "margin: 8px 0; "
+                "font-size: 0.9em; "
+                "color: #856404;"
+            )
+            error_elem["title"] = "LaTeXML conversion error - content may be incomplete"
+
+        # Collect and style elements with specific error/warning patterns
         warning_patterns = [
             "Unknown environment",
             "Missing",
@@ -804,7 +848,7 @@ class HTMLPostProcessor:
             "Warning:",
         ]
 
-        # Remove spans and divs that contain warning text
+        # Process spans and divs that contain warning text
         for elem in soup.find_all(["span", "div"]):
             elem_text = elem.get_text(strip=True)
             # Check if element has yellow/orange background (typical for warnings)
@@ -819,13 +863,40 @@ class HTMLPostProcessor:
             if (has_warning_color and has_warning_text) or (
                 has_warning_text and len(elem_text) < 200 and elem.name == "span"
             ):
-                logger.debug(f"Removing warning element: {elem_text[:100]}")
-                # Replace with empty span to preserve document structure
-                elem.decompose()
+                logger.warning(f"LaTeXML warning detected: {elem_text[:100]}")
+
+                # Collect warning
+                warning_type = "unknown"
+                severity = "medium"
+                for pattern in warning_patterns:
+                    if pattern in elem_text:
+                        warning_type = pattern.lower().replace(":", "").replace(" ", "_")
+                        if "error" in pattern.lower():
+                            severity = "high"
+                        break
+
+                collected_warnings.append({
+                    "type": warning_type,
+                    "severity": severity,
+                    "message": elem_text,
+                    "source": "latexml_warning_pattern",
+                })
+
+                # Style the warning instead of removing it
+                elem["class"] = elem.get("class", []) + ["conversion-warning"]
+                elem["style"] = (
+                    "background-color: #d1ecf1; "
+                    "border-left: 4px solid #0c5460; "
+                    "padding: 6px; "
+                    "margin: 6px 0; "
+                    "font-size: 0.85em; "
+                    "color: #0c5460;"
+                )
+                elem["title"] = f"LaTeXML warning: {warning_type}"
 
         # Specifically handle overpic environment warnings
         # overpic is a LaTeX package for overlaying text on images
-        # When missing, replace the warning with the underlying figure if available
+        # When missing, preserve warning with context
         for elem in soup.find_all(
             string=self.overpic_warning_pattern
         ):
@@ -836,17 +907,40 @@ class HTMLPostProcessor:
                     "figure"
                 )
                 if figure_elem:
-                    # The figure exists, just remove the warning
-                    elem.extract()
-                    logger.debug("Removed overpic warning, figure present")
+                    # The figure exists, note this in warnings
+                    collected_warnings.append({
+                        "type": "overpic_unsupported",
+                        "severity": "medium",
+                        "message": "overpic environment not supported - overlay text may be missing",
+                        "source": "overpic_pattern",
+                    })
+                    # Keep warning visible but styled
+                    warning_span = soup.new_tag("span", attrs={"class": "conversion-warning"})
+                    warning_span["style"] = (
+                        "background-color: #d1ecf1; "
+                        "border-left: 4px solid #0c5460; "
+                        "padding: 6px; "
+                        "margin: 6px 0; "
+                        "font-size: 0.85em; "
+                        "color: #0c5460; "
+                        "display: block;"
+                    )
+                    warning_span.string = "⚠ Note: overpic overlay text not supported - base figure shown only"
+                    elem.replace_with(warning_span)
+                    logger.warning("overpic environment not supported, base figure present")
                 else:
                     # No figure found - this is a missing graphic
-                    # Replace with a placeholder or remove entirely
+                    collected_warnings.append({
+                        "type": "overpic_missing_figure",
+                        "severity": "high",
+                        "message": "overpic environment not supported and figure is missing",
+                        "source": "overpic_pattern",
+                    })
                     elem.replace_with(
-                        "[Figure unavailable: overpic environment not supported]"
+                        "⚠ Figure unavailable: overpic environment not supported"
                     )
-                    logger.warning(
-                        "overpic environment not supported, placeholder inserted"
+                    logger.error(
+                        "overpic environment not supported and figure missing"
                     )
 
         # Handle raw LaTeX overpic code that LaTeXML couldn't process
@@ -870,16 +964,44 @@ class HTMLPostProcessor:
                     img_tag["style"] = "max-width: 100%; height: auto;"
                     span.clear()
                     span.append(img_tag)
-                    logger.debug(
-                        f"Converted overpic LaTeX to img tag: {figure_filename}"
+
+                    # Add warning note
+                    warning_note = soup.new_tag("div", attrs={"class": "conversion-warning"})
+                    warning_note["style"] = (
+                        "background-color: #d1ecf1; "
+                        "padding: 4px; "
+                        "margin-top: 4px; "
+                        "font-size: 0.8em; "
+                        "color: #0c5460;"
+                    )
+                    warning_note.string = f"⚠ overpic overlay text not shown for {figure_filename}"
+                    span.insert_after(warning_note)
+
+                    collected_warnings.append({
+                        "type": "overpic_partial_conversion",
+                        "severity": "medium",
+                        "message": f"overpic overlay text lost for {figure_filename}",
+                        "source": "overpic_raw_latex",
+                    })
+
+                    logger.warning(
+                        f"Converted overpic LaTeX to img tag (overlay text lost): {figure_filename}"
                     )
                 else:
-                    # Couldn't extract filename, remove the raw LaTeX
+                    # Couldn't extract filename
                     span.clear()
-                    span.append("[Figure: overpic environment not fully supported]")
-                    logger.warning(
+                    span.append("⚠ Figure: overpic environment not fully supported")
+                    collected_warnings.append({
+                        "type": "overpic_unparseable",
+                        "severity": "high",
+                        "message": f"Could not parse overpic environment: {span_text[:100]}",
+                        "source": "overpic_raw_latex",
+                    })
+                    logger.error(
                         f"Could not extract figure from overpic: {span_text[:100]}"
                     )
+
+        return collected_warnings
 
     def _fix_image_paths(self, soup: BeautifulSoup) -> None:
         """Fix image paths to point to correct location relative to output file."""
@@ -1075,6 +1197,376 @@ class HTMLPostProcessor:
                 },
             )
             head.append(viewport_meta)
+
+    def _add_content_verification_report(self, soup: BeautifulSoup, results: dict[str, Any]) -> None:
+        """
+        Add content verification report banner to show content preservation metrics.
+
+        Args:
+            soup: BeautifulSoup object
+            results: Processing results containing verification data
+        """
+        # Check if content verification data exists
+        verification = results.get("content_verification")
+        if not verification:
+            return  # No verification data available
+
+        body = soup.find("body")
+        if not body:
+            return
+
+        # Determine quality color based on overall score
+        score = verification.get("overall_score", 0)
+        if score >= 95:
+            bg_gradient = "linear-gradient(135deg, #11998e 0%, #38ef7d 100%)"  # Green
+            quality_emoji = "✅"
+        elif score >= 85:
+            bg_gradient = "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)"  # Blue
+            quality_emoji = "✓"
+        elif score >= 70:
+            bg_gradient = "linear-gradient(135deg, #fa709a 0%, #fee140 100%)"  # Yellow/Pink
+            quality_emoji = "⚠️"
+        else:
+            bg_gradient = "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)"  # Red
+            quality_emoji = "❌"
+
+        # Create verification report container
+        verification_div = soup.new_tag("div", attrs={
+            "id": "content-verification-report",
+            "class": "verification-report"
+        })
+        verification_div["style"] = (
+            f"background: {bg_gradient}; "
+            "color: white; "
+            "padding: 20px; "
+            "margin: 0 0 20px 0; "
+            "border-radius: 8px; "
+            "box-shadow: 0 4px 6px rgba(0,0,0,0.1); "
+            "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"
+        )
+
+        # Create header with score
+        header = soup.new_tag("h2")
+        header["style"] = "margin: 0 0 12px 0; font-size: 1.6em; font-weight: 600;"
+        quality_label = verification.get("quality", "good").upper()
+        header.string = f"{quality_emoji} Content Preservation: {score:.1f}% ({quality_label})"
+        verification_div.append(header)
+
+        # Create summary paragraph
+        summary_p = soup.new_tag("p")
+        summary_p["style"] = "margin: 0 0 16px 0; font-size: 1em; opacity: 0.95; line-height: 1.5;"
+        breakdown = verification.get("breakdown", {})
+
+        # Build summary text
+        summary_parts = []
+        for content_type, metrics in breakdown.items():
+            if content_type == "words":
+                continue  # Skip words for summary (too detailed)
+            source_count = metrics.get("source", 0)
+            if source_count > 0:
+                preserved_pct = metrics.get("preserved", "0%")
+                summary_parts.append(f"{content_type}: {preserved_pct}")
+
+        if summary_parts:
+            summary_p.string = " • ".join(summary_parts)
+        else:
+            summary_p.string = "Content analysis completed."
+        verification_div.append(summary_p)
+
+        # Create buttons container
+        buttons_div = soup.new_tag("div")
+        buttons_div["style"] = "display: flex; gap: 10px; flex-wrap: wrap;"
+
+        # Create details toggle button
+        details_btn = soup.new_tag("button", attrs={
+            "onclick": "document.getElementById('verification-details').style.display = "
+                      "document.getElementById('verification-details').style.display === 'none' ? 'block' : 'none'",
+            "class": "verification-toggle-btn"
+        })
+        details_btn["style"] = (
+            "background: rgba(255,255,255,0.2); "
+            "border: 1px solid rgba(255,255,255,0.3); "
+            "color: white; "
+            "padding: 8px 16px; "
+            "border-radius: 4px; "
+            "cursor: pointer; "
+            "font-size: 0.9em; "
+            "font-weight: 500; "
+            "transition: all 0.2s;"
+        )
+        details_btn.string = "📊 View Detailed Breakdown"
+        buttons_div.append(details_btn)
+
+        # Note: Diff report button is added later in the pipeline after report generation
+        verification_div.append(buttons_div)
+
+        # Create collapsible details section
+        details_div = soup.new_tag("div", attrs={"id": "verification-details"})
+        details_div["style"] = (
+            "display: none; "
+            "margin-top: 16px; "
+            "padding-top: 16px; "
+            "border-top: 1px solid rgba(255,255,255,0.2);"
+        )
+
+        # Add breakdown table
+        table = soup.new_tag("table")
+        table["style"] = (
+            "width: 100%; "
+            "border-collapse: collapse; "
+            "margin: 8px 0;"
+        )
+
+        # Table header
+        thead = soup.new_tag("thead")
+        tr = soup.new_tag("tr")
+        for header_text in ["Content Type", "Source", "Output", "Preserved"]:
+            th = soup.new_tag("th")
+            th["style"] = (
+                "text-align: left; "
+                "padding: 8px; "
+                "border-bottom: 2px solid rgba(255,255,255,0.3); "
+                "font-weight: 600;"
+            )
+            th.string = header_text
+            tr.append(th)
+        thead.append(tr)
+        table.append(thead)
+
+        # Table body
+        tbody = soup.new_tag("tbody")
+        for content_type, metrics in breakdown.items():
+            tr = soup.new_tag("tr")
+            tr["style"] = "border-bottom: 1px solid rgba(255,255,255,0.1);"
+
+            # Content type cell
+            td_type = soup.new_tag("td")
+            td_type["style"] = "padding: 8px; text-transform: capitalize;"
+            td_type.string = content_type.replace("_", " ")
+            tr.append(td_type)
+
+            # Source count cell
+            td_source = soup.new_tag("td")
+            td_source["style"] = "padding: 8px;"
+            td_source.string = str(metrics.get("source", 0))
+            tr.append(td_source)
+
+            # Output count cell
+            td_output = soup.new_tag("td")
+            td_output["style"] = "padding: 8px;"
+            td_output.string = str(metrics.get("output", 0))
+            tr.append(td_output)
+
+            # Preserved percentage cell
+            td_preserved = soup.new_tag("td")
+            td_preserved["style"] = "padding: 8px; font-weight: 600;"
+            preserved_str = metrics.get("preserved", "0%")
+            td_preserved.string = preserved_str
+            tr.append(td_preserved)
+
+            tbody.append(tr)
+        table.append(tbody)
+        details_div.append(table)
+
+        # Add missing/altered content if present
+        missing = verification.get("missing_content", [])
+        altered = verification.get("altered_content", [])
+
+        if missing or altered:
+            issues_header = soup.new_tag("h3")
+            issues_header["style"] = "margin: 16px 0 8px 0; font-size: 1.1em; font-weight: 500;"
+            issues_header.string = "Content Issues"
+            details_div.append(issues_header)
+
+            if missing:
+                missing_header = soup.new_tag("div")
+                missing_header["style"] = "margin: 8px 0 4px 0; font-weight: 600;"
+                missing_header.string = "Missing Content:"
+                details_div.append(missing_header)
+
+                for item in missing:
+                    item_div = soup.new_tag("div")
+                    item_div["style"] = (
+                        "background: rgba(255,255,255,0.1); "
+                        "padding: 6px 10px; "
+                        "margin: 2px 0; "
+                        "border-radius: 4px; "
+                        "font-size: 0.9em;"
+                    )
+                    item_div.string = f"• {item}"
+                    details_div.append(item_div)
+
+            if altered:
+                altered_header = soup.new_tag("div")
+                altered_header["style"] = "margin: 12px 0 4px 0; font-weight: 600;"
+                altered_header.string = "Altered Content:"
+                details_div.append(altered_header)
+
+                for item in altered:
+                    item_div = soup.new_tag("div")
+                    item_div["style"] = (
+                        "background: rgba(255,255,255,0.1); "
+                        "padding: 6px 10px; "
+                        "margin: 2px 0; "
+                        "border-radius: 4px; "
+                        "font-size: 0.9em;"
+                    )
+                    item_div.string = f"• {item}"
+                    details_div.append(item_div)
+
+        verification_div.append(details_div)
+
+        # Insert after the warnings banner (if exists) or at beginning of body
+        warnings_banner = soup.find(id="conversion-warnings-summary")
+        if warnings_banner:
+            warnings_banner.insert_after(verification_div)
+        else:
+            body.insert(0, verification_div)
+
+        logger.info(f"Added content verification report: {score:.1f}% preservation")
+
+    def _add_conversion_warnings_summary(self, soup: BeautifulSoup, results: dict[str, Any]) -> None:
+        """
+        Add a conversion warnings summary banner at the top of the HTML.
+
+        Args:
+            soup: BeautifulSoup object
+            results: Processing results containing warnings
+        """
+        conversion_warnings = results.get("conversion_warnings", [])
+        if not conversion_warnings:
+            return  # No warnings to display
+
+        # Count warnings by severity
+        high_severity = sum(1 for w in conversion_warnings if w.get("severity") == "high")
+        medium_severity = sum(1 for w in conversion_warnings if w.get("severity") == "medium")
+        low_severity = sum(1 for w in conversion_warnings if w.get("severity") == "low")
+
+        # Create warnings summary banner
+        body = soup.find("body")
+        if not body:
+            return
+
+        # Create summary container
+        summary_div = soup.new_tag("div", attrs={
+            "id": "conversion-warnings-summary",
+            "class": "conversion-summary"
+        })
+        summary_div["style"] = (
+            "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); "
+            "color: white; "
+            "padding: 20px; "
+            "margin: 0 0 30px 0; "
+            "border-radius: 8px; "
+            "box-shadow: 0 4px 6px rgba(0,0,0,0.1); "
+            "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;"
+        )
+
+        # Create header
+        header = soup.new_tag("h2")
+        header["style"] = "margin: 0 0 12px 0; font-size: 1.5em; font-weight: 600;"
+        header.string = f"⚠️ Conversion Report: {len(conversion_warnings)} Issue{'s' if len(conversion_warnings) != 1 else ''} Detected"
+        summary_div.append(header)
+
+        # Create summary paragraph
+        summary_p = soup.new_tag("p")
+        summary_p["style"] = "margin: 0 0 16px 0; font-size: 1em; opacity: 0.95;"
+        summary_text = (
+            f"This document was converted from LaTeX to HTML, but some elements could not be "
+            f"fully preserved. "
+        )
+        if high_severity > 0:
+            summary_text += f"{high_severity} critical issue{'s' if high_severity != 1 else ''}, "
+        if medium_severity > 0:
+            summary_text += f"{medium_severity} warning{'s' if medium_severity != 1 else ''}, "
+        if low_severity > 0:
+            summary_text += f"{low_severity} informational message{'s' if low_severity != 1 else ''}."
+        summary_p.string = summary_text.rstrip(", ") + "."
+        summary_div.append(summary_p)
+
+        # Create details toggle button
+        details_btn = soup.new_tag("button", attrs={
+            "onclick": "document.getElementById('warnings-details').style.display = "
+                      "document.getElementById('warnings-details').style.display === 'none' ? 'block' : 'none'",
+            "class": "warnings-toggle-btn"
+        })
+        details_btn["style"] = (
+            "background: rgba(255,255,255,0.2); "
+            "border: 1px solid rgba(255,255,255,0.3); "
+            "color: white; "
+            "padding: 8px 16px; "
+            "border-radius: 4px; "
+            "cursor: pointer; "
+            "font-size: 0.9em; "
+            "font-weight: 500; "
+            "transition: all 0.2s;"
+        )
+        details_btn.string = "📋 View Details"
+        summary_div.append(details_btn)
+
+        # Create collapsible details section
+        details_div = soup.new_tag("div", attrs={"id": "warnings-details"})
+        details_div["style"] = (
+            "display: none; "
+            "margin-top: 16px; "
+            "padding-top: 16px; "
+            "border-top: 1px solid rgba(255,255,255,0.2);"
+        )
+
+        # Group warnings by type
+        warnings_by_type = {}
+        for warning in conversion_warnings:
+            warning_type = warning.get("type", "unknown")
+            warnings_by_type.setdefault(warning_type, []).append(warning)
+
+        # Add warnings grouped by type
+        for warning_type, warnings_list in warnings_by_type.items():
+            type_header = soup.new_tag("h3")
+            type_header["style"] = "margin: 12px 0 8px 0; font-size: 1.1em; font-weight: 500;"
+            type_header.string = f"{warning_type.replace('_', ' ').title()} ({len(warnings_list)})"
+            details_div.append(type_header)
+
+            for warning in warnings_list:
+                warning_item = soup.new_tag("div")
+                warning_item["style"] = (
+                    "background: rgba(255,255,255,0.1); "
+                    "padding: 8px 12px; "
+                    "margin: 4px 0; "
+                    "border-radius: 4px; "
+                    "font-size: 0.9em;"
+                )
+
+                severity_badge = soup.new_tag("span")
+                severity = warning.get("severity", "unknown")
+                badge_color = {
+                    "high": "#dc3545",
+                    "medium": "#ffc107",
+                    "low": "#17a2b8"
+                }.get(severity, "#6c757d")
+                severity_badge["style"] = (
+                    f"background: {badge_color}; "
+                    "color: white; "
+                    "padding: 2px 8px; "
+                    "border-radius: 3px; "
+                    "font-size: 0.8em; "
+                    "font-weight: 600; "
+                    "margin-right: 8px;"
+                )
+                severity_badge.string = severity.upper()
+                warning_item.append(severity_badge)
+
+                message_span = soup.new_tag("span")
+                message_span.string = warning.get("message", "Unknown warning")
+                warning_item.append(message_span)
+
+                details_div.append(warning_item)
+
+        summary_div.append(details_div)
+
+        # Insert at the beginning of body
+        body.insert(0, summary_div)
+
+        logger.info(f"Added conversion warnings summary banner with {len(conversion_warnings)} warnings")
 
     def _add_enhancement_css(self, soup: BeautifulSoup) -> None:
         """Add CSS for better styling."""
