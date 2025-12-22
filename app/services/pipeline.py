@@ -1308,56 +1308,12 @@ class ConversionPipeline:
             )
             # Don't fail the conversion if asset copying fails
 
-    # Method removed - part of PR #18 content verification feature (pending review)
+    # Method disabled - part of PR #18 content verification feature (pending review)
     def _add_diff_report_link_to_html(self, html_file: Path, diff_report_path: Path) -> None:
         """Add a link to the diff report in the verification banner."""
         # Method disabled - PR #18 feature pending Greptile review
         logger.debug("Diff report link feature disabled - PR #18 pending review")
         return
-
-            # Find the verification report buttons div
-            verification_report = soup.find(id="content-verification-report")
-            if not verification_report:
-                logger.debug("No verification report found, skipping diff link")
-                return
-
-            # Find the buttons div
-            buttons_div = verification_report.find("div", style=lambda value: value and "display: flex" in value)
-            if not buttons_div:
-                logger.debug("No buttons div found")
-                return
-
-            # Create diff report link button
-            diff_btn = soup.new_tag("a", attrs={
-                "href": diff_report_path.name,
-                "target": "_blank",
-                "class": "diff-report-btn"
-            })
-            diff_btn["style"] = (
-                "background: rgba(255,255,255,0.3); "
-                "border: 1px solid rgba(255,255,255,0.4); "
-                "color: white; "
-                "padding: 8px 16px; "
-                "border-radius: 4px; "
-                "text-decoration: none; "
-                "font-size: 0.9em; "
-                "font-weight: 500; "
-                "transition: all 0.2s; "
-                "display: inline-block;"
-            )
-            diff_btn.string = "📄 View Full Diff Report"
-            buttons_div.append(diff_btn)
-
-            # Write back to file
-            with open(html_file, "w", encoding="utf-8") as f:
-                f.write(str(soup))
-
-            logger.info("Added diff report link to HTML")
-
-        except Exception as exc:
-            logger.error(f"Failed to add diff report link: {exc}")
-            # Don't re-raise - this is not critical enough to fail the conversion
-            # HTML modification failure should not prevent successful conversion
 
     def _find_main_tex_file(self, job: ConversionJob) -> Path | None:
         """Find the main .tex file from job metadata or input file."""
