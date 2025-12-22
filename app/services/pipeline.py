@@ -1308,10 +1308,12 @@ class ConversionPipeline:
             )
             # Don't fail the conversion if asset copying fails
 
-    # Method removed - part of PR #18 content verification feature
-    # def _add_diff_report_link_to_html(self, html_file: Path, diff_report_path: Path) -> None:
-    #     """Add a link to the diff report in the verification banner."""
-    #     ... (commented out - pending PR #18 review)
+    # Method removed - part of PR #18 content verification feature (pending review)
+    def _add_diff_report_link_to_html(self, html_file: Path, diff_report_path: Path) -> None:
+        """Add a link to the diff report in the verification banner."""
+        # Method disabled - PR #18 feature pending Greptile review
+        logger.debug("Diff report link feature disabled - PR #18 pending review")
+        return
 
             # Find the verification report buttons div
             verification_report = soup.find(id="content-verification-report")
