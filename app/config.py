@@ -94,7 +94,9 @@ class Settings(BaseSettings):
                 "SECRET_KEY must be changed in production! "
                 "Set SECRET_KEY environment variable to a secure random value."
             )
-        if len(v) < 64:
+        # Only enforce length requirement in production to allow simpler dev keys.
+        # Production tests should use ENVIRONMENT=production to validate security.
+        if environment == "production" and len(v) < 64:
             raise ValueError(
                 "SECRET_KEY must be at least 64 characters long for production security"
             )

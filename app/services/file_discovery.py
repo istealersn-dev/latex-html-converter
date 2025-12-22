@@ -203,7 +203,9 @@ class FileDiscoveryService:
                 project_structure.main_tex_file = (
                     output_dir / project_structure.main_tex_file
                 )
-                project_structure.project_dir = output_dir
+                # Set project_dir to the directory containing the main tex file
+                # This ensures LaTeXML can find all supporting files in the same directory
+                project_structure.project_dir = project_structure.main_tex_file.parent
 
                 self.logger.info(
                     f"Extracted {len(project_structure.extracted_files)} "
