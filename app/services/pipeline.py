@@ -26,6 +26,8 @@ from app.models.conversion import (
     PipelineStage,
 )
 from app.services.assets import AssetConversionService
+from app.services.content_diff import ContentDiffReportService
+from app.services.content_verification import ContentVerificationService
 from app.services.file_discovery import (
     FileDiscoveryService,
     LatexDependencies,
@@ -94,6 +96,8 @@ class ConversionPipeline:
         self.file_discovery = file_discovery or FileDiscoveryService()
         self.package_manager = package_manager or PackageManagerService()
         self.latex_preprocessor = LaTeXPreprocessor()
+        self.content_verification = ContentVerificationService()
+        self.content_diff = ContentDiffReportService()
 
         # Pipeline configuration
         self.max_concurrent_jobs = 5
@@ -1184,14 +1188,92 @@ class ConversionPipeline:
                 job.output_dir.glob("*.png")
             )
 
-            # Content verification and diff report features removed - pending Greptile review
-            # TODO: Re-enable after PR #18 is properly reviewed
-            # main_tex_file = self._find_main_tex_file(job)
-            # if main_tex_file and main_tex_file.exists():
+<<<<<<< HEAD
+            # Run content verification to compare source LaTeX vs HTML output
+            main_tex_file = self._find_main_tex_file(job)
+            if main_tex_file and main_tex_file.exists():
+                logger.info("Running content verification...")
+                try:
+                    verification_report = self.content_verification.verify_content_preservation(
+                        latex_file=main_tex_file,
+                        html_file=output_file,
+                    )
+
+                    # Store verification report in metadata
+                    verification_summary = self.content_verification.generate_verification_summary(
+                        verification_report
+                    )
+                    stage.metadata["content_verification"] = verification_summary
+                    job.metadata["content_verification"] = verification_summary
+
+                    # Use verification score as quality score (more accurate than simplified scoring)
+                    job.quality_score = verification_report.preservation_score
+
+                    logger.info(
+                        f"Content verification complete: {verification_report.preservation_score:.1f}% "
+                        f"({verification_report.quality_assessment})"
+                    )
+
+                    # Add warnings for missing/altered content
+                    if verification_report.missing_content:
+                        stage.metadata.setdefault("warnings", []).extend([
+                            f"Missing content: {item}" for item in verification_report.missing_content
+                        ])
+                    if verification_report.altered_content:
+                        stage.metadata.setdefault("warnings", []).extend([
+                            f"Altered content: {item}" for item in verification_report.altered_content
+                        ])
+
+                except Exception as exc:
+                    # Log full traceback for debugging failed verifications
+                    import traceback
+                    logger.warning(
+                        f"Content verification failed: {exc}\n"
+                        f"Full traceback: {traceback.format_exc()}"
+                    )
+                    # Don't fail the entire conversion if verification fails
+                    stage.metadata.setdefault("warnings", []).append(
+                        f"Content verification failed: {exc}"
+                    )
+                    # Fall back to simplified quality score
+                    job.quality_score = self._calculate_quality_score(job)
+
+                # Generate detailed diff report
+                if main_tex_file and main_tex_file.exists():
+                    try:
+                        logger.info("Generating content diff report...")
+                        diff_report = self.content_diff.generate_diff_report(
+                            latex_file=main_tex_file,
+                            html_file=output_file,
+                        )
+
+                        # Export JSON report
+                        json_report_path = job.output_dir / "content_diff_report.json"
+                        self.content_diff.export_report_json(diff_report, json_report_path)
+
+                        # Generate HTML report
+                        html_report_path = job.output_dir / "content_diff_report.html"
+                        self.content_diff.generate_html_report(diff_report, html_report_path)
+
+                        # Store report metadata
+                        stage.metadata["diff_report"] = {
+                            "json_path": str(json_report_path),
+                            "html_path": str(html_report_path),
+                            "overall_preservation": diff_report.overall_preservation,
+                            "summary": diff_report.summary,
+                        }
+                        job.metadata["diff_report"] = stage.metadata["diff_report"]
+
+                        logger.info(f"Diff report generated: {diff_report.overall_preservation:.1f}% preservation")
+
+                        # Add diff report link to the final HTML
+                        if html_report_path.exists():
+                            self._add_diff_report_link_to_html(output_file, html_report_path)
             #     logger.info("Running content verification...")
             #     ... (content verification code commented out)
             
             # Fall back to simplified quality score
+>>>>>>> origin/main
                         try:
                             self._add_diff_report_link_to_html(output_file, html_report_path)
                         except Exception as exc:
@@ -1308,12 +1390,115 @@ class ConversionPipeline:
             )
             # Don't fail the conversion if asset copying fails
 
-    # Method disabled - part of PR #18 content verification feature (pending review)
+<<<<<<< HEAD
     def _add_diff_report_link_to_html(self, html_file: Path, diff_report_path: Path) -> None:
         """Add a link to the diff report in the verification banner."""
-        # Method disabled - PR #18 feature pending Greptile review
-        logger.debug("Diff report link feature disabled - PR #18 pending review")
-        return
+        try:
+            from bs4 import BeautifulSoup
+
+            with open(html_file, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            soup = BeautifulSoup(content, "lxml" if "lxml" else "html.parser")
+
+            # Find the verification report buttons div
+            verification_report = soup.find(id="content-verification-report")
+            if not verification_report:
+                logger.debug("No verification report found, skipping diff link")
+                return
+
+            # Find the buttons div
+            buttons_div = verification_report.find("div", style=lambda value: value and "display: flex" in value)
+            if not buttons_div:
+                logger.debug("No buttons div found")
+                return
+
+            # Create diff report link button
+            diff_btn = soup.new_tag("a", attrs={
+                "href": diff_report_path.name,
+                "target": "_blank",
+                "class": "diff-report-btn"
+            })
+            diff_btn["style"] = (
+                "background: rgba(255,255,255,0.3); "
+                "border: 1px solid rgba(255,255,255,0.4); "
+                "color: white; "
+                "padding: 8px 16px; "
+                "border-radius: 4px; "
+                "text-decoration: none; "
+                "font-size: 0.9em; "
+                "font-weight: 500; "
+                "transition: all 0.2s; "
+                "display: inline-block;"
+            )
+            diff_btn.string = "📄 View Full Diff Report"
+            buttons_div.append(diff_btn)
+
+            # Write back to file
+            with open(html_file, "w", encoding="utf-8") as f:
+                f.write(str(soup))
+
+            logger.info("Added diff report link to HTML")
+
+        except Exception as exc:
+            logger.error(f"Failed to add diff report link: {exc}")
+            # Don't re-raise - this is not critical enough to fail the conversion
+            # HTML modification failure should not prevent successful conversion
+
+    def _add_diff_report_link_to_html(self, html_file: Path, diff_report_path: Path) -> None:
+        """Add a link to the diff report in the verification banner."""
+        try:
+            from bs4 import BeautifulSoup
+
+            with open(html_file, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            soup = BeautifulSoup(content, "lxml" if "lxml" else "html.parser")
+
+            # Find the verification report buttons div
+            verification_report = soup.find(id="content-verification-report")
+            if not verification_report:
+                logger.debug("No verification report found, skipping diff link")
+                return
+
+            # Find the buttons div
+            buttons_div = verification_report.find("div", style=lambda value: value and "display: flex" in value)
+            if not buttons_div:
+                logger.debug("No buttons div found")
+                return
+
+            # Create diff report link button
+            diff_btn = soup.new_tag("a", attrs={
+                "href": diff_report_path.name,
+                "target": "_blank",
+                "class": "diff-report-btn"
+            })
+            diff_btn["style"] = (
+                "background: rgba(255,255,255,0.3); "
+                "border: 1px solid rgba(255,255,255,0.4); "
+                "color: white; "
+                "padding: 8px 16px; "
+                "border-radius: 4px; "
+                "text-decoration: none; "
+                "font-size: 0.9em; "
+                "font-weight: 500; "
+                "transition: all 0.2s; "
+                "display: inline-block;"
+            )
+            diff_btn.string = "📄 View Full Diff Report"
+            buttons_div.append(diff_btn)
+
+            # Write back to file
+            with open(html_file, "w", encoding="utf-8") as f:
+                f.write(str(soup))
+
+            logger.info("Added diff report link to HTML")
+
+        except Exception as exc:
+            logger.error(f"Failed to add diff report link: {exc}")
+            # Don't re-raise - this is not critical enough to fail the conversion
+            # HTML modification failure should not prevent successful conversion
+>>>>>>> origin/main
 
     def _find_main_tex_file(self, job: ConversionJob) -> Path | None:
         """Find the main .tex file from job metadata or input file."""
