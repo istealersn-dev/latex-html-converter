@@ -25,6 +25,17 @@ from .svg_utils import (
     optimize_svg,
 )
 from .validation import ValidationUtils
+from .path_utils import (
+    PathCycleError,
+    PathDepthError,
+    discover_directories_recursive,
+    find_files_bfs,
+    get_path_depth,
+    normalize_path,
+    normalize_path_for_os,
+    validate_path_depth,
+)
+from .path_cache import PathCache, cache_directory_listing, get_path_cache
 
 __all__ = [
     "run_command_safely",
@@ -42,4 +53,17 @@ __all__ = [
     "optimize_svg",
     "calculate_optimization_ratio",
     "ValidationUtils",
+    # Path utilities
+    "find_files_bfs",
+    "discover_directories_recursive",
+    "normalize_path",
+    "normalize_path_for_os",
+    "validate_path_depth",
+    "get_path_depth",
+    "PathDepthError",
+    "PathCycleError",
+    # Path caching
+    "PathCache",
+    "get_path_cache",
+    "cache_directory_listing",
 ]

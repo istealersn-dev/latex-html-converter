@@ -1192,21 +1192,7 @@ class ConversionPipeline:
             #     ... (content verification code commented out)
             
             # Fall back to simplified quality score
-                        try:
-                            self._add_diff_report_link_to_html(output_file, html_report_path)
-                        except Exception as exc:
-                            logger.warning(f"Failed to add diff report link: {exc}")
-
-                    except Exception as exc:
-                        logger.warning(f"Diff report generation failed: {exc}")
-                        stage.metadata.setdefault("warnings", []).append(
-                            f"Diff report generation failed: {exc}"
-                        )
-
-            else:
-                logger.warning("Main .tex file not found, skipping content verification")
-                # Use simplified quality score as fallback
-                job.quality_score = self._calculate_quality_score(job)
+            job.quality_score = self._calculate_quality_score(job)
 
             # Update stage
             stage.status = ConversionStatus.COMPLETED

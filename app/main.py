@@ -20,17 +20,14 @@ from loguru import logger
 from app.api import conversion, health
 from app.config import settings
 from app.middleware import LoggingMiddleware
+from app.utils.shell import check_command_available
 
 # Setup templates (will be initialized in lifespan)
-templates = None
+templates: Jinja2Templates | None = None
 
 
 def validate_tool_paths() -> None:
     """Validate that required external tools are available."""
-    from pathlib import Path
-
-    from app.utils.shell import check_command_available
-
     required_tools = {
         "pdflatex": settings.PDFLATEX_PATH,
         "latexmlc": settings.LATEXML_PATH,
@@ -63,13 +60,16 @@ def validate_tool_paths() -> None:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     """
     Lifespan context manager for FastAPI application.
 
     Handles startup and shutdown events.
+
+    Args:
+        _app: FastAPI application instance (unused but required by FastAPI)
     """
-    global templates
+    global templates  # pylint: disable=global-statement  # Global needed for lifespan initialization
 
     # Startup
     logger.info("Starting LaTeX → HTML5 Converter service")
@@ -106,7 +106,7 @@ def create_app() -> FastAPI:
     Returns:
         FastAPI: Configured FastAPI application instance
     """
-    app = FastAPI(
+    fastapi_app = FastAPI(
         title="LaTeX → HTML5 Converter",
         description=(
             "FastAPI-based service converting LaTeX projects to clean "
@@ -120,26 +120,26 @@ def create_app() -> FastAPI:
     )
 
     # Add middleware
-    setup_middleware(app)
+    setup_middleware(fastapi_app)
 
     # Include routers
-    setup_routers(app)
+    setup_routers(fastapi_app)
 
     # Setup logging
     setup_logging()
 
-    return app
+    return fastapi_app
 
 
-def setup_middleware(app: FastAPI) -> None:
+def setup_middleware(fastapi_app: FastAPI) -> None:
     """
     Configure middleware for the FastAPI application.
 
     Args:
-        app: FastAPI application instance
+        fastapi_app: FastAPI application instance
     """
     # CORS middleware
-    app.add_middleware(
+    fastapi_app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.ALLOWED_ORIGINS,
         allow_credentials=True,
@@ -148,42 +148,42 @@ def setup_middleware(app: FastAPI) -> None:
     )
 
     # Trusted host middleware
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
+    fastapi_app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
 
     # Custom logging middleware
-    app.add_middleware(LoggingMiddleware)  # type: ignore
+    fastapi_app.add_middleware(LoggingMiddleware)  # type: ignore
 
 
-def setup_routers(app: FastAPI) -> None:
+def setup_routers(fastapi_app: FastAPI) -> None:
     """
     Include API routers in the FastAPI application.
 
     Args:
-        app: FastAPI application instance
+        fastapi_app: FastAPI application instance
     """
 
     # Web UI route
-    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+    @fastapi_app.get("/", response_class=HTMLResponse, include_in_schema=False)
     async def index(request: Request):
         """Serve the web UI."""
+        if templates is None:
+            raise RuntimeError("Templates not initialized")
         return templates.TemplateResponse("index.html", {"request": request})
 
     # API routes
-    app.include_router(health.router, prefix="/api/v1", tags=["health"])
-    app.include_router(conversion.router, prefix="/api/v1", tags=["conversion"])
+    fastapi_app.include_router(health.router, prefix="/api/v1", tags=["health"])
+    fastapi_app.include_router(conversion.router, prefix="/api/v1", tags=["conversion"])
 
     # Mount static files if directory exists
     static_dir = Path(settings.STATIC_DIR)
     if static_dir.exists():
-        app.mount("/static", StaticFiles(directory=settings.STATIC_DIR), name="static")
+        fastapi_app.mount("/static", StaticFiles(directory=settings.STATIC_DIR), name="static")
 
 
 def setup_logging() -> None:
     """
     Configure logging with loguru.
     """
-    from pathlib import Path
-
     logger.remove()  # Remove default handler
 
     # Add console handler

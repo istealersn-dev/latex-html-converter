@@ -167,35 +167,96 @@ class LaTeXMLService:
 
             # Add project directory paths if provided
             if project_dir and project_dir.exists():
-                # Add main project directory
-                cmd.extend(["--path", str(project_dir)])
+                from app.config import settings
+                from app.utils.path_utils import (
+                    discover_directories_recursive,
+                    normalize_path_for_os,
+                )
 
-                # Add common subdirectories if they exist
-                for subdir in ["doc", "graphic", "styles", "figures", "images"]:
-                    subdir_path = project_dir / subdir
-                    if subdir_path.exists():
-                        cmd.extend(["--path", str(subdir_path)])
-                
-                # Also add all parent directories up to 2 levels to ensure class files are found
-                # This helps when class files are in subdirectories
-                # Use a set to track added paths for O(1) lookup instead of O(n) list search
+                # Use a set to track added paths for O(1) lookup
                 added_paths = set()
+                
+                # Add main project directory
+                try:
+                    normalized_project = normalize_path_for_os(project_dir)
+                    project_str = str(normalized_project)
+                    if project_str not in added_paths:
+                        added_paths.add(project_str)
+                        cmd.extend(["--path", project_str])
+                except ValueError as exc:
+                    logger.warning(f"Could not normalize project directory: {exc}")
+                    # Fallback to original path
+                    project_str = str(project_dir)
+                    if project_str not in added_paths:
+                        added_paths.add(project_str)
+                        cmd.extend(["--path", project_str])
+
+                # Discover all subdirectories recursively (up to max depth)
+                # This ensures LaTeXML can find files in deeply nested structures
+                try:
+                    all_dirs = discover_directories_recursive(
+                        project_dir,
+                        max_depth=settings.MAX_PATH_DEPTH,
+                        include_hidden=False,
+                    )
+                    
+                    # Add all discovered directories to LaTeXML path
+                    for dir_path in all_dirs:
+                        try:
+                            normalized = normalize_path_for_os(dir_path)
+                            dir_str = str(normalized)
+                            if dir_str not in added_paths:
+                                added_paths.add(dir_str)
+                                cmd.extend(["--path", dir_str])
+                        except ValueError:
+                            # Skip paths that exceed limits
+                            logger.debug(f"Skipping path that exceeds limits: {dir_path}")
+                            continue
+                    
+                    logger.info(
+                        f"Added {len(all_dirs)} directories recursively for path discovery"
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        f"Failed to discover directories recursively: {exc}. "
+                        "Falling back to common subdirectories."
+                    )
+                    # Fallback: Add common subdirectories
+                    for subdir in ["doc", "graphic", "styles", "figures", "images"]:
+                        subdir_path = project_dir / subdir
+                        if subdir_path.exists():
+                            subdir_str = str(subdir_path)
+                            if subdir_str not in added_paths:
+                                added_paths.add(subdir_str)
+                                cmd.extend(["--path", subdir_str])
+                
+                # Also add parent directories (up to reasonable depth)
+                # This helps when class files are in parent directories
                 parent_paths_added = []
                 current_dir = project_dir
-                for _ in range(2):
+                max_parent_levels = 5  # Increased from 2 to 5 for better discovery
+                for _ in range(max_parent_levels):
                     if current_dir.parent.exists() and current_dir.parent != current_dir:
-                        parent_path = str(current_dir.parent)
-                        if parent_path not in added_paths:  # O(1) lookup
-                            added_paths.add(parent_path)
-                            parent_paths_added.append(parent_path)
-                            cmd.extend(["--path", parent_path])
+                        try:
+                            parent_normalized = normalize_path_for_os(current_dir.parent)
+                            parent_str = str(parent_normalized)
+                            if parent_str not in added_paths:
+                                added_paths.add(parent_str)
+                                parent_paths_added.append(parent_str)
+                                cmd.extend(["--path", parent_str])
+                        except ValueError:
+                            # Stop if parent path exceeds limits
+                            break
                         current_dir = current_dir.parent
                     else:
                         break
 
-                logger.info("Added project directory paths: %s", project_dir)
+                logger.info(f"Added project directory paths: {project_dir}")
                 if parent_paths_added:
-                    logger.debug("Added parent directory paths for class file discovery: %s", parent_paths_added)
+                    logger.debug(
+                        f"Added {len(parent_paths_added)} parent directory paths: "
+                        f"{parent_paths_added[:3]}{'...' if len(parent_paths_added) > 3 else ''}"
+                    )
 
             env_vars = settings.get_environment_vars()
 

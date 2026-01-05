@@ -12,6 +12,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.config import settings
+from app.utils.path_utils import (
+    find_files_bfs,
+    normalize_path_for_os,
+    validate_path_depth,
+)
+
 
 @dataclass
 class LatexDependencies:
@@ -169,6 +176,7 @@ class FileDiscoveryService:
                 # Otherwise, extract individually for better control
                 if len(files_to_extract) > 50 and len(files_to_extract) / len(all_zip_names) > 0.8:
                     # Extract all files, then clean up unwanted ones
+                    # This preserves full directory structure including deep nesting
                     zip_file.extractall(output_dir)
                     self.logger.debug(
                         f"Bulk extracted {len(all_zip_names)} files, "
@@ -176,6 +184,7 @@ class FileDiscoveryService:
                     )
                 else:
                     # Extract only needed files individually
+                    # This handles deep directory structures by creating parent dirs as needed
                     for file_path in project_structure.extracted_files:
                         # Skip directories
                         if file_path.suffix == "":
@@ -183,6 +192,22 @@ class FileDiscoveryService:
 
                         # Extract to output directory
                         extract_path = output_dir / file_path
+                        
+                        # Validate path depth before extraction
+                        if settings.MAX_PATH_DEPTH is not None:
+                            try:
+                                validate_path_depth(
+                                    extract_path,
+                                    max_depth=settings.MAX_PATH_DEPTH,
+                                    base_path=output_dir,
+                                )
+                            except Exception as exc:
+                                self.logger.warning(
+                                    f"Skipping file with excessive depth: {file_path} ({exc})"
+                                )
+                                continue
+                        
+                        # Create parent directories (handles deep nesting)
                         extract_path.parent.mkdir(parents=True, exist_ok=True)
 
                         # Extract file content
@@ -192,11 +217,16 @@ class FileDiscoveryService:
                                 open(extract_path, "wb") as target_file,
                             ):
                                 # Use shutil.copyfileobj for efficient copying
-                                import shutil
                                 shutil.copyfileobj(source_file, target_file)
                         except KeyError:
                             # File not in ZIP, skip
                             self.logger.warning(f"File not found in ZIP: {file_path}")
+                            continue
+                        except (OSError, ValueError) as exc:
+                            # Handle path length or other OS limits
+                            self.logger.warning(
+                                f"Failed to extract {file_path}: {exc}"
+                            )
                             continue
 
                 # Update project structure with actual extracted paths

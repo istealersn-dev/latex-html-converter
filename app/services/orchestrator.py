@@ -601,19 +601,35 @@ class ConversionOrchestrator:
                 time.sleep(30)  # Wait before retrying
 
     def _check_stuck_jobs(self) -> None:
-        """Check for and handle stuck jobs."""
+        """Check for and handle stuck jobs.
+        
+        Uses adaptive timeout from job metadata if available, otherwise falls back
+        to the base max_job_duration. This ensures jobs with adaptive timeouts
+        (calculated based on file size/complexity) are not prematurely cancelled.
+        """
         current_time = datetime.utcnow()
         stuck_jobs = []
 
         with self._job_lock:
             for job_id, job in self._jobs.items():
-                if (
-                    job.status == ConversionStatus.RUNNING
-                    and job.started_at
-                    and (current_time - job.started_at).total_seconds()
-                    > self.max_job_duration
-                ):
+                if job.status != ConversionStatus.RUNNING or not job.started_at:
+                    continue
+                
+                # Get job-specific timeout from metadata (adaptive timeout) if available
+                # Otherwise use the base max_job_duration
+                job_timeout = job.metadata.get("timeout_seconds")
+                if job_timeout is None or not isinstance(job_timeout, (int, float)):
+                    job_timeout = self.max_job_duration
+                else:
+                    job_timeout = int(job_timeout)
+                
+                elapsed_seconds = (current_time - job.started_at).total_seconds()
+                
+                if elapsed_seconds > job_timeout:
                     stuck_jobs.append(job_id)
+                    logger.warning(
+                        f"Job {job_id} exceeded timeout: {elapsed_seconds:.0f}s > {job_timeout}s, cancelling"
+                    )
 
         for job_id in stuck_jobs:
             logger.warning(f"Job {job_id} appears to be stuck, cancelling")

@@ -435,6 +435,23 @@ async def convert_latex_to_html(
                     status_code=400, detail="No main LaTeX file found in archive"
                 )
 
+            # Calculate adaptive timeout based on extracted directory (not just .tex file)
+            # This ensures large projects get appropriate timeouts
+            from app.services.pipeline import ConversionPipeline
+            pipeline = ConversionPipeline()
+            calculated_timeout = pipeline._calculate_adaptive_timeout(extracted_dir)
+            logger.info(
+                f"Calculated adaptive timeout based on extracted directory: {calculated_timeout}s"
+            )
+            
+            # Override timeout in options if not already set
+            if conversion_options is None:
+                from app.models.conversion import ConversionOptions
+                conversion_options = ConversionOptions()
+            if not hasattr(conversion_options, "max_processing_time") or conversion_options.max_processing_time is None:
+                conversion_options.max_processing_time = calculated_timeout
+                logger.info(f"Set max_processing_time to {calculated_timeout}s based on extracted directory size")
+
             # Output goes to outputs/zip_name_job_id/
             output_dir = job_output_dir
             logger.info(f"Output will be saved to: {output_dir}")
@@ -1256,11 +1273,16 @@ def _extract_archive(input_file: Path, temp_dir: Path, timeout: int = 300) -> Pa
 
     def perform_extraction() -> Path:
         """Perform the actual extraction (called with timeout)."""
+        from app.config import settings
+        from app.utils.path_utils import validate_path_depth
+        
         if input_file.suffix.lower() == ".zip":
             with zipfile.ZipFile(input_file, "r") as zip_ref:
                 # Validate all paths before extraction
                 for member in zip_ref.namelist():
                     member_path = extracted_dir / member
+                    
+                    # Security: Check for zip slip
                     if not is_safe_path(extracted_dir, member_path):
                         raise HTTPException(
                             status_code=400,
@@ -1269,8 +1291,24 @@ def _extract_archive(input_file: Path, temp_dir: Path, timeout: int = 300) -> Pa
                                 f"(potential zip slip attack)"
                             ),
                         )
+                    
+                    # Validate path depth if configured
+                    if settings.MAX_PATH_DEPTH is not None:
+                        try:
+                            validate_path_depth(
+                                member_path,
+                                max_depth=settings.MAX_PATH_DEPTH,
+                                base_path=extracted_dir,
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                f"Path depth validation failed for {member}: {exc}"
+                            )
+                            # Continue extraction but log warning
+                            # (Some archives may have deep but valid paths)
 
-                # Safe to extract
+                # Extract all files preserving full directory structure
+                # This handles arbitrarily deep directory trees
                 zip_ref.extractall(extracted_dir)
 
         elif input_file.suffix.lower() in [".tar", ".gz"] or input_file.name.endswith(
@@ -1299,7 +1337,8 @@ def _extract_archive(input_file: Path, temp_dir: Path, timeout: int = 300) -> Pa
                             ),
                         )
 
-                # Safe to extract
+                # Extract all files preserving full directory structure
+                # This handles arbitrarily deep directory trees
                 tar_ref.extractall(extracted_dir)
         else:
             raise ValueError(f"Unsupported archive format: {input_file.suffix}")
@@ -1342,7 +1381,9 @@ def _extract_archive(input_file: Path, temp_dir: Path, timeout: int = 300) -> Pa
 
 def _find_main_tex_file(extracted_dir: Path) -> Path | None:
     """
-    Find the main LaTeX file in the extracted directory.
+    Find the main LaTeX file in the extracted directory using breadth-first search.
+    
+    This handles deep directory structures without recursion limits.
 
     Args:
         extracted_dir: Path to extracted directory
@@ -1350,7 +1391,10 @@ def _find_main_tex_file(extracted_dir: Path) -> Path | None:
     Returns:
         Path: Path to main LaTeX file or None if not found
     """
-    # Look for common LaTeX file names
+    from app.config import settings
+    from app.utils.path_utils import find_files_bfs
+
+    # Look for common LaTeX file names first (breadth-first)
     main_candidates = [
         "main.tex",
         "document.tex",
@@ -1358,22 +1402,40 @@ def _find_main_tex_file(extracted_dir: Path) -> Path | None:
         "article.tex",
         "thesis.tex",
         "report.tex",
+        "manuscript.tex",
+        "finalmanuscript.tex",
     ]
 
-    # Check for main candidates first
+    # Check for main candidates in root first
     for candidate in main_candidates:
         candidate_path = extracted_dir / candidate
-        if candidate_path.exists():
+        if candidate_path.exists() and candidate_path.is_file():
             return candidate_path
 
-    # If no main candidate found, look for any .tex file
-    tex_files = list(extracted_dir.glob("*.tex"))
-    if tex_files:
-        # Return the first .tex file found
-        return tex_files[0]
-
-    # Look in subdirectories recursively
-    for tex_file in extracted_dir.rglob("*.tex"):
-        return tex_file
+    # Use breadth-first search to find .tex files
+    # This handles deep directory structures without recursion limits
+    try:
+        tex_files = find_files_bfs(
+            extracted_dir,
+            "*.tex",
+            max_depth=settings.MAX_PATH_DEPTH,
+            follow_symlinks=False,
+        )
+        
+        if tex_files:
+            # Prefer files with main candidate names
+            for candidate in main_candidates:
+                for tex_file in tex_files:
+                    if tex_file.name.lower() == candidate.lower():
+                        return tex_file
+            
+            # Return the first .tex file found (breadth-first order)
+            return tex_files[0]
+    except Exception as exc:
+        logger.warning(f"BFS search failed, falling back to glob: {exc}")
+        # Fallback to simple glob
+        tex_files = list(extracted_dir.glob("*.tex"))
+        if tex_files:
+            return tex_files[0]
 
     return None

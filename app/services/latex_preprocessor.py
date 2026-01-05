@@ -11,6 +11,9 @@ from typing import Any
 
 from loguru import logger
 
+from app.config import settings
+from app.utils.path_utils import find_files_bfs, normalize_path_for_os
+
 
 class LaTeXPreprocessor:
     """Service for preprocessing LaTeX files before conversion."""
@@ -80,21 +83,33 @@ class LaTeXPreprocessor:
             for search_dir in search_dirs:
                 if cls_file:
                     break
-                # Look for class file in current directory
+                
+                # Validate path depth
+                try:
+                    normalize_path_for_os(search_dir)
+                except ValueError as exc:
+                    self.logger.warning(f"Path depth validation failed for {search_dir}: {exc}")
+                    continue
+                
+                # Look for class file in current directory first
                 potential_cls = search_dir / f"{class_name}.cls"
-                if potential_cls.exists():
+                if potential_cls.exists() and potential_cls.is_file():
                     cls_file = potential_cls
                     self.logger.info(f"Found class file: {cls_file}")
                     break
 
-                # Also check subdirectories - use rglob with pattern to find .cls files directly
-                # This is more efficient than iterating all files and checking is_dir()
-                for cls_path in search_dir.rglob(f"{class_name}.cls"):
-                    if cls_path.is_file():
-                        cls_file = cls_path
-                        self.logger.info(f"Found class file: {cls_file}")
-                        break
-                if cls_file:
+                # Use breadth-first search to find .cls files in subdirectories
+                # This avoids recursion limits and handles deep directory structures
+                cls_files = find_files_bfs(
+                    search_dir,
+                    f"{class_name}.cls",
+                    max_depth=settings.MAX_PATH_DEPTH,
+                    follow_symlinks=False,
+                )
+                
+                if cls_files:
+                    cls_file = cls_files[0]  # Use first match
+                    self.logger.info(f"Found class file via BFS: {cls_file}")
                     break
 
             # Find related style files (same name.sty)

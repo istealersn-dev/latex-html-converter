@@ -62,9 +62,15 @@ class Settings(BaseSettings):
     DVISVGM_PATH: str = "/usr/bin/dvisvgm"
 
     # Conversion settings
-    CONVERSION_TIMEOUT: int = 300  # 5 minutes
+    CONVERSION_TIMEOUT: int = 1800  # 30 minutes (base timeout, adaptive timeout may be higher)
     MAX_CONCURRENT_CONVERSIONS: int = 5
     CONVERSION_RETENTION_HOURS: int = 24  # How long to keep conversion results
+
+    # Path depth settings
+    MAX_PATH_DEPTH: int | None = None  # Maximum path depth (None = unlimited)
+    MAX_PATH_LENGTH: int = 4096  # Maximum path length in characters (OS limit)
+    ENABLE_PATH_CACHING: bool = True  # Enable path discovery caching
+    PATH_CACHE_TTL: int = 3600  # Path cache TTL in seconds (1 hour)
 
     # LaTeX package settings
     CRITICAL_LATEX_PACKAGES: list[str] = [
