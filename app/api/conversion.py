@@ -372,15 +372,17 @@ async def convert_latex_to_html(
             )
 
         # Parse conversion options
-        request_options = _parse_conversion_options(options)
+        request_options_dict = _parse_conversion_options(options)
 
         # Convert to orchestrator options
-        conversion_options = None
-        if request_options:
+        conversion_options: ConversionOptions | None = None
+        if request_options_dict:
+            # Parse nested options from request
             conversion_options = ConversionOptions(
-                tectonic_options=request_options.model_dump(),
-                latexml_options=request_options.model_dump(),
-                post_processing_options=request_options.model_dump(),
+                tectonic_options=request_options_dict.get("tectonic_options", {}),
+                latexml_options=request_options_dict.get("latexml_options", {}),
+                post_processing_options=request_options_dict.get("post_processing_options", {}),
+                max_processing_time=request_options_dict.get("max_processing_time", 600),
             )
 
         # Check disk space before processing
@@ -446,7 +448,6 @@ async def convert_latex_to_html(
             
             # Override timeout in options if not already set
             if conversion_options is None:
-                from app.models.conversion import ConversionOptions
                 conversion_options = ConversionOptions()
             if not hasattr(conversion_options, "max_processing_time") or conversion_options.max_processing_time is None:
                 conversion_options.max_processing_time = calculated_timeout
@@ -1215,7 +1216,7 @@ def _validate_file_content(file_content: bytes, file_ext: str) -> bool:
     return True
 
 
-def _parse_conversion_options(options: str | None) -> ConversionOptions | None:
+def _parse_conversion_options(options: str | None) -> dict[str, Any] | None:
     """
     Parse conversion options from JSON string.
 
@@ -1223,14 +1224,14 @@ def _parse_conversion_options(options: str | None) -> ConversionOptions | None:
         options: JSON string of conversion options
 
     Returns:
-        ConversionOptions: Parsed options or None
+        Dict with parsed options or None
     """
     if not options:
         return None
 
     try:
         options_dict = json.loads(options)
-        return ConversionOptions(**options_dict)
+        return options_dict
     except (json.JSONDecodeError, ValueError) as exc:
         logger.warning(f"Invalid conversion options: {exc}")
         return None

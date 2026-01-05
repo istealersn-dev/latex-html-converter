@@ -147,6 +147,7 @@ class HTMLPostProcessor:
                 "steps_completed": [],
                 "errors": [],
                 "warnings": [],
+                "options": options or {},  # Pass options through for asset conversion
             }
 
             # Step 1: Clean HTML
@@ -1723,6 +1724,13 @@ class HTMLPostProcessor:
     ) -> BeautifulSoup:
         """Convert assets (TikZ, PDF) to SVG format."""
         try:
+            # Check if asset conversion should be skipped
+            skip_assets = results.get("options", {}).get("skip_images", False)
+            if skip_assets:
+                logger.info("Skipping asset conversion (skip_images option enabled)")
+                results["steps_completed"].append("asset_conversion_skipped")
+                return soup
+            
             # Skip asset conversion if service is not available
             if self.asset_conversion_service is None:
                 logger.info(

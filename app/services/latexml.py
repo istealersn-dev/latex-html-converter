@@ -167,7 +167,7 @@ class LaTeXMLService:
 
             # Add project directory paths if provided
             if project_dir and project_dir.exists():
-                from app.config import settings
+                from app.config import settings as app_settings
                 from app.utils.path_utils import (
                     discover_directories_recursive,
                     normalize_path_for_os,
@@ -196,7 +196,7 @@ class LaTeXMLService:
                 try:
                     all_dirs = discover_directories_recursive(
                         project_dir,
-                        max_depth=settings.MAX_PATH_DEPTH,
+                        max_depth=app_settings.MAX_PATH_DEPTH,
                         include_hidden=False,
                     )
                     
