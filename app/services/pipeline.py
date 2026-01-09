@@ -36,7 +36,7 @@ from app.services.latex_preprocessor import LaTeXPreprocessor
 from app.services.latexml import LaTeXMLError, LaTeXMLService
 from app.services.package_manager import PackageManagerService
 from app.services.pdflatex import PDFLaTeXCompilationError, PDFLaTeXService
-from app.services.tectonic import TectonicService
+from app.services.tectonic import TectonicCompilationError, TectonicService
 from app.utils.fs import cleanup_directory, ensure_directory, get_file_info
 
 
@@ -825,26 +825,11 @@ class ConversionPipeline:
             # Step 4: Compile with Tectonic
             logger.info("Starting Tectonic compilation...")
 
-            # Catch Tectonic-specific errors if using Tectonic
-            try:
-                result = self.tectonic_service.compile_latex(
-                    input_file=project_structure.main_tex_file,
-                    output_dir=job.output_dir / "tectonic",
-                    options=job.options.get("tectonic_options", {}),
-                )
-            except Exception as exc:
-                # Wrap Tectonic errors if they aren't already wrapped in something pipeline understands
-                # but let PDFLaTeXCompilationError pass through as it's caught below
-                if isinstance(exc, PDFLaTeXCompilationError):
-                    raise
-                # Import here to avoid circular imports or early import issues
-                from app.services.tectonic import TectonicCompilationError
-                if isinstance(exc, TectonicCompilationError):
-                    # Re-raise as is, or wrap if needed.
-                    # The existing catch block handles PDFLaTeXCompilationError,
-                    # we should probably catch TectonicCompilationError there too.
-                    raise
-                raise
+            result = self.tectonic_service.compile_latex(
+                input_file=project_structure.main_tex_file,
+                output_dir=job.output_dir / "tectonic",
+                options=job.options.get("tectonic_options", {}),
+            )
 
             # Update stage
             stage.status = ConversionStatus.COMPLETED
@@ -859,14 +844,11 @@ class ConversionPipeline:
 
             logger.info(f"Tectonic compilation completed for job: {job.job_id}")
 
-        except (PDFLaTeXCompilationError, FileNotFoundError, Exception) as exc:
-            # Check for TectonicCompilationError by name to avoid importing it if not needed
-            is_tectonic_error = type(exc).__name__ == "TectonicCompilationError"
-
-            # If it's not one of our expected errors and not TectonicError, re-raise
-            if not isinstance(exc, (PDFLaTeXCompilationError, FileNotFoundError)) and not is_tectonic_error:
-                raise exc
-
+        except (
+            PDFLaTeXCompilationError,
+            TectonicCompilationError,
+            FileNotFoundError,
+        ) as exc:
             # Log detailed error but continue with LaTeXML-only conversion
             error_details = {
                 "error_type": type(exc).__name__,
