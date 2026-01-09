@@ -36,6 +36,7 @@ from app.services.latex_preprocessor import LaTeXPreprocessor
 from app.services.latexml import LaTeXMLError, LaTeXMLService
 from app.services.package_manager import PackageManagerService
 from app.services.pdflatex import PDFLaTeXCompilationError, PDFLaTeXService
+from app.services.tectonic import TectonicCompilationError, TectonicService
 from app.utils.fs import cleanup_directory, ensure_directory, get_file_info
 
 
@@ -61,7 +62,7 @@ class ConversionPipeline:
 
     def __init__(
         self,
-        tectonic_service: PDFLaTeXService | None = None,
+        tectonic_service: PDFLaTeXService | TectonicService | None = None,
         latexml_service: LaTeXMLService | None = None,
         html_processor: HTMLPostProcessor | None = None,
         file_discovery: FileDiscoveryService | None = None,
@@ -71,15 +72,25 @@ class ConversionPipeline:
         Initialize the conversion pipeline.
 
         Args:
-            tectonic_service: Tectonic service instance
+            tectonic_service: Tectonic service instance (can be PDFLaTeX or Tectonic)
             latexml_service: LaTeXML service instance
             html_processor: HTML post-processor instance
             file_discovery: File discovery service instance
             package_manager: Package manager service instance
         """
-        self.tectonic_service = tectonic_service or PDFLaTeXService(
-            pdflatex_path=settings.PDFLATEX_PATH
-        )
+        if tectonic_service:
+            self.tectonic_service = tectonic_service
+        elif settings.COMPILATION_ENGINE == "tectonic":
+            self.tectonic_service = TectonicService(
+                tectonic_path=settings.TECTONIC_PATH
+            )
+            logger.info("Using Tectonic compilation engine")
+        else:
+            self.tectonic_service = PDFLaTeXService(
+                pdflatex_path=settings.PDFLATEX_PATH
+            )
+            logger.info("Using PDFLaTeX compilation engine")
+
         # Use LaTeXMLSettings() to pick up environment variables
         self.latexml_service = latexml_service or LaTeXMLService(
             settings=LaTeXMLSettings()
@@ -813,6 +824,7 @@ class ConversionPipeline:
 
             # Step 4: Compile with Tectonic
             logger.info("Starting Tectonic compilation...")
+
             result = self.tectonic_service.compile_latex(
                 input_file=project_structure.main_tex_file,
                 output_dir=job.output_dir / "tectonic",
@@ -832,7 +844,11 @@ class ConversionPipeline:
 
             logger.info(f"Tectonic compilation completed for job: {job.job_id}")
 
-        except (PDFLaTeXCompilationError, FileNotFoundError) as exc:
+        except (
+            PDFLaTeXCompilationError,
+            TectonicCompilationError,
+            FileNotFoundError,
+        ) as exc:
             # Log detailed error but continue with LaTeXML-only conversion
             error_details = {
                 "error_type": type(exc).__name__,
