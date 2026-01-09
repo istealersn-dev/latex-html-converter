@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     PDFLATEX_PATH: str = "/usr/bin/pdflatex"  # Docker default, override with env var
     LATEXML_PATH: str = "/usr/bin/latexmlc"  # Docker default, override with env var
     DVISVGM_PATH: str = "/usr/bin/dvisvgm"
+    COMPILATION_ENGINE: str = "pdflatex"  # "pdflatex" or "tectonic"
 
     # Conversion settings
     CONVERSION_TIMEOUT: int = 1800  # 30 minutes (base timeout, adaptive timeout may be higher)
@@ -135,6 +136,15 @@ class Settings(BaseSettings):
         if v > 500 * 1024 * 1024:  # 500MB
             raise ValueError("MAX_FILE_SIZE cannot exceed 500MB")
         return v
+
+    @field_validator("COMPILATION_ENGINE")
+    @classmethod
+    def validate_compilation_engine(cls, v: str) -> str:
+        """Validate compilation engine setting."""
+        allowed_engines = ["pdflatex", "tectonic"]
+        if v.lower() not in allowed_engines:
+            raise ValueError(f"COMPILATION_ENGINE must be one of {allowed_engines}")
+        return v.lower()
 
     class Config:
         """Pydantic configuration."""
