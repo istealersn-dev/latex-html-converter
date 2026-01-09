@@ -485,16 +485,73 @@ class ConversionPipeline:
                     if stage_timeout > 0:
                         estimated_progress = min(95.0, (stage_elapsed / stage_timeout) * 100)
                         current_stage_progress = max(0.0, estimated_progress)
+                        logger.debug(
+                            f"Progress calculation for {current_stage.name}: "
+                            f"{stage_elapsed:.1f}s / {stage_timeout:.1f}s = {estimated_progress:.1f}%"
+                        )
                     else:
                         current_stage_progress = 0.0
                 else:
-                    current_stage_progress = current_stage.progress_percentage
+                    # Stage is running but started_at is not set - use a minimal progress estimate
+                    # based on job elapsed time as fallback
+                    if job.started_at:
+                        job_elapsed = (datetime.utcnow() - job.started_at).total_seconds()
+                        # Estimate progress based on job elapsed time
+                        # Since progress is divided by total_stages (typically 4), we need to be more aggressive
+                        # to ensure at least 1% overall progress shows up (which requires 4% stage progress)
+                        # For LaTeXML: estimate 2% per minute (more aggressive to show visible progress)
+                        # This ensures progress shows even if started_at isn't set
+                        if current_stage.name == "LaTeXML Conversion":
+                            # LaTeXML can take a long time, so use 2% per minute (capped at 20%)
+                            # This gives: 2 min = 4%, 5 min = 10%, 10 min = 20%
+                            current_stage_progress = min(20.0, job_elapsed / 30.0)  # 2% per minute
+                        else:
+                            # Other stages: 2% per minute (capped at 10%)
+                            current_stage_progress = min(10.0, job_elapsed / 30.0)
+                        logger.debug(
+                            f"Stage {current_stage.name} running but no started_at, "
+                            f"using fallback progress based on job elapsed time ({job_elapsed:.1f}s): "
+                            f"{current_stage_progress:.1f}%"
+                        )
+                    else:
+                        # No job.started_at either - use a minimal progress
+                        # This should rarely happen, but ensures we show some progress
+                        # Use 4% to ensure at least 1% overall progress (4% / 4 stages = 1%)
+                        current_stage_progress = 4.0
+                        logger.debug(
+                            f"Stage {current_stage.name} running but no started_at or job.started_at, "
+                            f"using minimal progress: {current_stage_progress:.1f}%"
+                        )
             else:
                 current_stage_progress = current_stage.progress_percentage
         
         # Overall progress = base progress + (current stage progress / total stages)
         # Division is safe because total_stages is set to at least 1 via max() above to prevent division by zero
         progress_percentage = base_progress + (current_stage_progress / total_stages)
+        
+        # Ensure progressive minimum progress based on elapsed time
+        # This prevents progress from showing 0% when it's actually running
+        # and ensures it increases over time even if stage timing isn't precise
+        if job.started_at:
+            job_elapsed = (datetime.utcnow() - job.started_at).total_seconds()
+            if job_elapsed > 30:
+                # Progressive minimum: 1% after 30s, 2% after 2min, 3% after 5min, etc.
+                # This ensures users see progress increasing over time
+                if job_elapsed < 120:  # 30s - 2min: 1%
+                    min_progress = 1.0
+                elif job_elapsed < 300:  # 2min - 5min: 2%
+                    min_progress = 2.0
+                elif job_elapsed < 600:  # 5min - 10min: 3%
+                    min_progress = 3.0
+                else:  # 10min+: 4%
+                    min_progress = 4.0
+                
+                if progress_percentage < min_progress:
+                    progress_percentage = min_progress
+                    logger.debug(
+                        f"Enforcing minimum {min_progress}% progress after {job_elapsed:.1f}s elapsed time"
+                    )
+        
         progress_percentage = min(99.0, progress_percentage)  # Cap at 99% until fully complete
 
         # Calculate elapsed time
