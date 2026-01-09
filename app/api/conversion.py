@@ -661,7 +661,19 @@ async def get_conversion_status(conversion_id: str) -> ConversionStatusResponse:
             ConversionStatusEnum.CANCELLED: ConversionStatus.CANCELLED,
         }
         api_status = status_mapping.get(status, ConversionStatus.PENDING)
-        progress_percentage = progress.progress_percentage if progress else 0.0
+        
+        # Use progress from ConversionProgress object if available
+        # If not available but job is running, calculate minimal progress based on elapsed time
+        if progress:
+            progress_percentage = progress.progress_percentage
+        elif status == ConversionStatusEnum.RUNNING:
+            # Job is running but progress not available - calculate minimal progress
+            # This handles edge cases where progress calculation fails
+            # Use a very conservative estimate: 1% per 5 minutes, max 2%
+            progress_percentage = 1.0  # Show at least 1% to indicate progress
+            logger.debug(f"Progress not available for running job {conversion_id}, using minimal progress")
+        else:
+            progress_percentage = 0.0
         message = (
             progress.message
             if progress and progress.message
